@@ -1,27 +1,29 @@
 # Example: Depot next to qBittorrent and Jellyfin, all mounting the same media folder as /data.
 #
-#   mkdir -p ~/containers/depot          # before the first start, so it belongs to you, not root
-#   docker compose up -d --build
+#   cp .env.example .env                 # then set your own paths and user in .env
+#   mkdir -p /path/to/depot/config       # before the first start, so it belongs to you, not root
+#   docker compose up -d                 # pulls the published image (--build builds it from source instead)
 #   docker compose exec depot cat /config/access-token
 #
-# Then open http://localhost:5080 and paste the token.
+# Then open http://localhost:5080 (or the DEPOT_PORT you chose) and paste the token.
+# To update: docker compose pull && docker compose up -d
 services:
   depot:
     build: .
-    image: depot:latest
+    image: ghcr.io/6970706f/depot:latest
     container_name: depot
     restart: unless-stopped
     # The same user that owns the media files (see `id -u` and `id -g`). Depot must be able to
     # write to the libraries, and to hardlink the downloads it needs to own them or write to them.
-    user: "1000:100"
+    user: "${PUID:?set PUID in .env}:${PGID:?set PGID in .env}"
     ports:
-      - "5080:8080"
+      - "${DEPOT_PORT:-5080}:8080"
     environment:
       # Every name used in the browser to reach Depot, such as the server's name on the network.
-      AllowedHosts: "localhost;127.0.0.1"
+      AllowedHosts: "${DEPOT_ALLOWED_HOSTS:-localhost;127.0.0.1}"
     volumes:
-      - ~/containers/depot:/config
-      - ~/containers/media:/data
+      - ${DEPOT_CONFIG_DIR:?set DEPOT_CONFIG_DIR in .env}:/config
+      - ${MEDIA_DIR:?set MEDIA_DIR in .env}:/data
     # Lets Depot reach a qBittorrent running on the host as http://host.docker.internal:8080.
     # In the same compose project, use the service name instead, such as http://qbittorrent:8080.
     extra_hosts:

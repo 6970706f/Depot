@@ -9,3 +9,4 @@ backend/Depot.Tests/
 **/*.db
 **/*.db-shm
 **/*.db-wal
+.env

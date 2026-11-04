@@ -57,19 +57,28 @@ in `data/access-token` (`cat data/access-token`). The browser keeps the token af
 ## Docker
 
 ```sh
-mkdir -p ~/containers/depot          # before starting, so the folder belongs to you and not root
-docker compose up -d --build         # uses the compose.yaml at the root
+cp .env.example .env                 # then edit .env with your paths and user
+mkdir -p /path/to/depot/config       # the DEPOT_CONFIG_DIR from .env, before starting, so it belongs to you and not root
+docker compose up -d                 # pulls ghcr.io/6970706f/depot:latest (--build builds from source instead)
 docker compose exec depot cat /config/access-token
 ```
 
-Open `http://localhost:5080` and paste the token. In `compose.yaml`, adjust:
+To update to the latest version: `docker compose pull && docker compose up -d`.
 
-- `user`: the same user that owns the media (`id -u` and `id -g`). Depot must be able to write to the libraries
-  and, to create hardlinks, own the downloads or be able to write to them.
-- `AllowedHosts`: every name used in the browser to reach Depot (for example `localhost;server.lan`).
-- Volumes: `/config` holds Depot's data (database, keys, token); `/data` is the same media folder that
-  qBittorrent and Jellyfin mount as `/data`. With a single mount, downloads and libraries are on the same
-  file system and hardlinks work.
+The image is published to `ghcr.io/6970706f/depot` by GitHub Actions on every push to `main`, after the tests
+pass: `latest` follows `main`, and `sha-<commit>` (such as `sha-99b5c71`) pins a specific build. Pull requests
+only build the image, without publishing it.
+
+Open `http://localhost:5080` and paste the token. `docker-compose.yaml` has no personal paths: everything
+comes from `.env` (not committed), and `docker compose` stops with a message if a required value is missing:
+
+| Variable | Required | What it is |
+| --- | --- | --- |
+| `PUID` / `PGID` | yes | The user and group that own the media (`id -u` and `id -g`). Depot must be able to write to the libraries and, to create hardlinks, own the downloads or be able to write to them. |
+| `DEPOT_CONFIG_DIR` | yes | Host folder mounted as `/config`: Depot's data (database, keys, token). |
+| `MEDIA_DIR` | yes | Host folder mounted as `/data`: the same media folder qBittorrent and Jellyfin mount as `/data`. With a single mount, downloads and libraries are on the same file system and hardlinks work. |
+| `DEPOT_PORT` | no (`5080`) | Port on the host for the interface. |
+| `DEPOT_ALLOWED_HOSTS` | no (`localhost;127.0.0.1`) | Every name used in the browser to reach Depot (for example `localhost;server.lan`). |
 
 The image ships with `movies` at `/data/movies`, `series` at `/data/series` and the mapping `/data` → `/data`; whatever
 is saved in **Settings** takes precedence afterwards. The qBittorrent URL is as seen from inside the container: the
@@ -390,10 +399,10 @@ series/The Last of Us/Season 01/The.Last.of.Us.S01E01.1080p.mkv
 
 | Key | Default | What it is |
 | --- | --- | --- |
-| `MoviesPath` / `SeriesPath` | `~/containers/media/movies` / `.../series` | Library folders (`~/` = home of the user running Depot). They aren't created automatically. The dialog's series list comes from the folders inside `SeriesPath`. |
+| `MoviesPath` / `SeriesPath` | `~/media/movies` / `.../series` | Library folders (`~/` = home of the user running Depot). They aren't created automatically. The dialog's series list comes from the folders inside `SeriesPath`. |
 | `ImportMode` | `Auto` | `Auto` (hardlink, otherwise copy), `Hardlink` (fails instead of copying) or `Copy`. |
 | `PollingIntervalSeconds` | `60` | How often Depot looks for completed downloads (10 to 3600). |
-| `PathMappings` | `[]` | **Required for importing.** `{ "QbittorrentPath": "/downloads", "DepotPath": "~/containers/media/downloads" }`. These are the only folders Depot reads downloads from: a `save_path` outside them is never used, whatever path qBittorrent reports. With qBittorrent on the same machine, map the folder to itself (`/srv/downloads` → `/srv/downloads`). |
+| `PathMappings` | `[]` | **Required for importing.** `{ "QbittorrentPath": "/downloads", "DepotPath": "~/media/downloads" }`. These are the only folders Depot reads downloads from: a `save_path` outside them is never used, whatever path qBittorrent reports. With qBittorrent on the same machine, map the folder to itself (`/srv/downloads` → `/srv/downloads`). |
 
 In Jellyfin, create two libraries: **Movies** (type Movies) pointing to the movies folder and **Shows**
 (type Shows) pointing to the series folder. If Jellyfin runs in Docker, use the path *inside* the
@@ -419,7 +428,7 @@ point: if qBittorrent mounts `/downloads` and Jellyfin mounts `/movies` as separ
 hardlink fails even on the same disk and everything becomes a copy (twice the space). Mount the whole parent folder:
 
 ```text
-~/containers/media/            ← mounted as /data in qBittorrent and Jellyfin
+/path/to/media/                ← MEDIA_DIR; mounted as /data in qBittorrent and Jellyfin
 ├── downloads/                 ← qBittorrent saves here
 │   ├── movies/                ← folder for the "movies" category in qBittorrent
 │   └── series/                ← folder for the "series" category in qBittorrent
@@ -427,7 +436,7 @@ hardlink fails even on the same disk and everything becomes a copy (twice the sp
 └── series/                    ← Jellyfin Shows library (type Shows)
 ```
 
-With Depot running directly on the server, the mapping is `/data` → `~/containers/media`.
+With Depot running directly on the server, the mapping is `/data` → `/path/to/media`.
 
 **2. In Jellyfin**, turn on *Real-time monitoring* for both libraries: items show up as soon as Depot
 finishes importing. Since files keep their original names, Jellyfin identifies episodes by

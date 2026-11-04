@@ -10,9 +10,9 @@ public sealed class OrganizationOptions
 {
     public const string SectionName = "Organization";
 
-    public string MoviesPath { get; init; } = "~/containers/media/movies";
+    public string MoviesPath { get; init; } = "~/media/movies";
 
-    public string SeriesPath { get; init; } = "~/containers/media/series";
+    public string SeriesPath { get; init; } = "~/media/series";
 
     public ImportMode ImportMode { get; init; } = ImportMode.Auto;
 

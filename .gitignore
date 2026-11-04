@@ -11,3 +11,6 @@ bin\\Debug/
 # Local application data (SQLite databases, etc.)
 data/*
 !data/.gitkeep
+
+# Local docker compose settings (see .env.example)
+.env

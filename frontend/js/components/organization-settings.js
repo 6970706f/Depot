@@ -27,7 +27,7 @@
 
   function createMappingRow(mapping, onRemove) {
     const remote = textField({ label: 'Folder in qBittorrent', value: mapping.qbittorrentPath, placeholder: '/downloads' });
-    const local = textField({ label: 'Same folder for Depot', value: mapping.depotPath, placeholder: '~/containers/media/downloads' });
+    const local = textField({ label: 'Same folder for Depot', value: mapping.depotPath, placeholder: '~/media/downloads' });
     const remove = h('button', {
       class: 'icon-btn icon-btn-danger', type: 'button', title: 'Remove mapping', 'aria-label': 'Remove mapping', onClick: onRemove,
     }, icon('trash'));
@@ -168,7 +168,7 @@
         'The videos of finished movies and series are filed here, in the folder chosen when adding them. Depot hardlinks or copies them: the downloaded files and the torrent stay as they are.',
         fields.moviesPath.el, fields.seriesPath.el, fields.importMode.el, fields.pollingIntervalSeconds.el),
       settingsSection('Path mappings',
-        'The folders Depot may read downloads from: nothing outside them is imported. Map qBittorrent\'s download folder to the same folder as Depot sees it, such as /downloads to ~/containers/media/downloads, or to itself when qBittorrent runs on this machine.',
+        'The folders Depot may read downloads from: nothing outside them is imported. Map qBittorrent\'s download folder to the same folder as Depot sees it, such as /downloads to ~/media/downloads, or to itself when qBittorrent runs on this machine.',
         mappingList, h('div', { class: 'settings-actions' }, addButton)),
       settingsSection('Folder check', 'Whether Depot can use each folder right now. Imports wait while any check fails.', diagnostics),
       h('div', { class: 'settings-save' },
