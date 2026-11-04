@@ -68,7 +68,17 @@ namespace Depot.Infrastructure.Persistence.Migrations
                     b.Property<string>("DestinationPath")
                         .HasColumnType("TEXT");
 
+                    b.Property<long?>("ExpectedFileId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExtrasFolder")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("ImportedWith")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
                         .HasColumnType("TEXT");
 
                     b.Property<string>("MediaType")
@@ -77,6 +87,9 @@ namespace Depot.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("Message")
                         .HasColumnType("TEXT");
+
+                    b.Property<int?>("PlacementSeason")
+                        .HasColumnType("INTEGER");
 
                     b.Property<string>("RelativePath")
                         .IsRequired()

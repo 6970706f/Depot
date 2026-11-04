@@ -23,8 +23,13 @@ public interface IFileTransfer
     // Never replaces an existing destination.
     HardLinkResult TryCreateHardLink(string sourcePath, string destinationPath);
 
-    // Copies into a new file; fails when destinationPath already exists.
-    Task CopyAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken);
+    // Copies into a new file; fails when destinationPath already exists. created is awaited once
+    // the new file exists, before any data is written to it.
+    Task CopyAsync(string sourcePath, string destinationPath, Func<Task> created, CancellationToken cancellationToken);
+
+    // The file's inode, without following symbolic links: every name of one file shares it, and
+    // a rename keeps it. Null when the system can't tell.
+    long? FileId(string path);
 }
 
 public sealed partial class FileTransfer : IFileTransfer
@@ -38,6 +43,11 @@ public sealed partial class FileTransfer : IFileTransfer
     private const int CrossDeviceError = 18;
     private const int TooManyLinksError = 31;
     private const int NotSupportedError = 95;
+
+    // statx(2) arguments: AT_FDCWD, AT_SYMLINK_NOFOLLOW and STATX_INO.
+    private const int CurrentDirectory = -100;
+    private const int NoFollow = 0x100;
+    private const uint InodeField = 0x100;
 
     public HardLinkResult TryCreateHardLink(string sourcePath, string destinationPath)
     {
@@ -63,21 +73,61 @@ public sealed partial class FileTransfer : IFileTransfer
         };
     }
 
-    public async Task CopyAsync(string sourcePath, string destinationPath, CancellationToken cancellationToken)
+    public async Task CopyAsync(string sourcePath, string destinationPath, Func<Task> created, CancellationToken cancellationToken)
     {
         await using var input = new FileStream(
             sourcePath, FileMode.Open, FileAccess.Read, FileShare.Read, BufferSize, FileOptions.Asynchronous | FileOptions.SequentialScan);
         await using var output = new FileStream(
             destinationPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, BufferSize, FileOptions.Asynchronous);
+        await created();
         await input.CopyToAsync(output, BufferSize, cancellationToken);
         await output.FlushAsync(cancellationToken);
         // The file must really be on disk before it's published under its final name.
         output.Flush(flushToDisk: true);
     }
 
+    public long? FileId(string path)
+    {
+        // .NET doesn't expose inodes.
+        if (!OperatingSystem.IsLinux())
+        {
+            return null;
+        }
+
+        try
+        {
+            if (Statx(CurrentDirectory, path, NoFollow, InodeField, out var status) != 0 || (status.Mask & InodeField) == 0)
+            {
+                return null;
+            }
+
+            return unchecked((long)status.Inode);
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // glibc older than 2.28.
+            return null;
+        }
+    }
+
     // libc.so.6 is already loaded by the runtime on any glibc system.
     [LibraryImport("libc.so.6", EntryPoint = "link", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
     private static partial int Link(string existingPath, string newPath);
+
+    [LibraryImport("libc.so.6", EntryPoint = "statx", StringMarshalling = StringMarshalling.Utf8)]
+    private static partial int Statx(int directory, string path, int flags, uint mask, out StatxBuffer buffer);
+
+    // struct statx from <linux/stat.h>, which has the same layout on every architecture. Only
+    // the fields Depot reads are declared.
+    [StructLayout(LayoutKind.Explicit, Size = 256)]
+    private struct StatxBuffer
+    {
+        [FieldOffset(0)]
+        public uint Mask;
+
+        [FieldOffset(32)]
+        public ulong Inode;
+    }
 }
 
 public interface IDiskSpace

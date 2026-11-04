@@ -7,6 +7,10 @@
 #
 # Then open http://localhost:5080 (or the DEPOT_PORT you chose) and paste the token.
 # To update: docker compose pull && docker compose up -d
+# To back up while it runs: docker compose exec depot dotnet Depot.Api.dll --backup /config/backups
+# To restore on a new server, before the first start:
+#   docker compose run --rm --no-deps depot --restore /config/restore/<backup>.tar.gz
+# See "Backup and restore" in the README.
 services:
   depot:
     build: .

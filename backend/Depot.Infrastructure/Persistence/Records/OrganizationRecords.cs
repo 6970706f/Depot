@@ -66,11 +66,21 @@ public sealed class OrganizationJobRecord
 
     public int? Season { get; set; }
 
+    // Where the video goes inside the target: Kind, and PlacementSeason for an episode or
+    // ExtrasFolder for an extra.
+    public VideoKind Kind { get; set; }
+
+    public int? PlacementSeason { get; set; }
+
+    public string? ExtrasFolder { get; set; }
+
     public OrganizationJobStatus Status { get; set; }
 
     public string? Message { get; set; }
 
     public string? DestinationPath { get; set; }
+
+    public long? ExpectedFileId { get; set; }
 
     public ImportMode? ImportedWith { get; set; }
 

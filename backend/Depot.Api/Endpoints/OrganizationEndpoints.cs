@@ -40,6 +40,15 @@ public static class OrganizationEndpoints
         group.MapPost("/jobs/{id:int}/skip", (int id, OrganizationJobService service, CancellationToken cancellationToken) =>
             service.SkipAsync(id, cancellationToken));
 
+        // Confirms or corrects where a series video goes: { kind: "main", season } for an episode
+        // (season 0 for a special) or { kind: "extra", extrasFolder }.
+        group.MapPost("/jobs/{id:int}/classify", (int id, VideoPlacementInput input, OrganizationJobService service, CancellationToken cancellationToken) =>
+            service.ClassifyAsync(id, input, cancellationToken));
+
+        // Accepts the suggestions for every video of a download that waits for review.
+        group.MapPost("/downloads/{hash}/confirm", (string hash, OrganizationJobService service, CancellationToken cancellationToken) =>
+            service.ConfirmDownloadAsync(hash, cancellationToken));
+
         // The series already in the library, with their seasons, for the add download dialog.
         routes.MapGet("/api/library/series", (LibraryService service, CancellationToken cancellationToken) =>
             service.ListSeriesAsync(cancellationToken));

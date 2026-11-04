@@ -79,6 +79,26 @@ public sealed class OrganizationJobTests
     }
 
     [Fact]
+    public void TheExpectedFileBelongsToOneAttempt()
+    {
+        var job = New();
+        Assert.Throws<InvalidJobStateException>(() => job.ExpectFile(42, Now));
+
+        job.StartProcessing("/media/series/x.mkv", Now);
+        job.ExpectFile(42, Now);
+        Assert.Equal(42, job.ExpectedFileId);
+
+        job.ReturnToQueue("Depot stopped.", Now);
+        Assert.Null(job.ExpectedFileId);
+
+        job.StartProcessing("/media/series/x.mkv", Now);
+        job.ExpectFile(43, Now);
+        job.Fail("Disk full.", Now);
+        job.Retry(Now);
+        Assert.Null(job.ExpectedFileId);
+    }
+
+    [Fact]
     public void ACompletedJobCantBeSkippedOrRetried()
     {
         var job = New();
@@ -91,6 +111,71 @@ public sealed class OrganizationJobTests
         Assert.Contains("already imported", skip.Message);
     }
 
-    private static OrganizationJob New() =>
-        OrganizationJob.Discover("hash", "The.Last.of.Us.S01", "The.Last.of.Us.S01/ep1.mkv", 1024, Show, Now);
+    [Fact]
+    public void AnUncertainVideoWaitsForReviewAndIsNeverImportedBeforeIt()
+    {
+        var job = New(VideoPlacement.Extra("featurettes"), "It's in an extras folder, but it's numbered like an episode.");
+
+        Assert.Equal(OrganizationJobStatus.NeedsReview, job.Status);
+        Assert.False(job.IsReadyToImport);
+        Assert.True(job.CanClassify);
+        Assert.True(job.CanSkip);
+        Assert.Throws<InvalidJobStateException>(() => job.StartProcessing("/media/series/x.mkv", Now));
+
+        job.Classify(VideoPlacement.Episode(0), Now);
+
+        Assert.Equal(OrganizationJobStatus.Discovered, job.Status);
+        Assert.Equal(VideoPlacement.Episode(0), job.Placement);
+        Assert.Null(job.Message);
+        Assert.True(job.IsReadyToImport);
+    }
+
+    [Fact]
+    public void APlacementCanBeCorrectedUntilTheImportStarts()
+    {
+        var job = New();
+        job.Classify(VideoPlacement.Extra("trailers"), Now);
+        job.StartProcessing("/media/series/x.mkv", Now);
+        Assert.False(job.CanClassify);
+        Assert.Throws<InvalidJobStateException>(() => job.Classify(VideoPlacement.Episode(1), Now));
+
+        job.Fail("Disk full.", Now);
+        job.Classify(VideoPlacement.Episode(1), Now);
+        Assert.Equal(OrganizationJobStatus.Discovered, job.Status);
+        Assert.Null(job.DestinationPath);
+
+        var movie = OrganizationJob.Discover(
+            "hash", "Dune", "Dune/Dune.mkv", 1024, new LibraryTarget(MediaType.Movie, "Dune", null), VideoPlacement.Movie, null, Now);
+        Assert.False(movie.CanClassify);
+        Assert.Throws<InvalidJobStateException>(() => movie.Classify(VideoPlacement.Extra("extras"), Now));
+    }
+
+    [Theory]
+    [InlineData("main", 0, null)]
+    [InlineData("MAIN", 12, null)]
+    [InlineData("extra", null, "Behind The Scenes")]
+    public void AcceptsThePlacementsJellyfinUnderstands(string kind, int? season, string? extrasFolder)
+    {
+        var placement = VideoPlacement.ForSeries(kind, season, extrasFolder);
+
+        Assert.Equal(kind.Equals("extra", StringComparison.OrdinalIgnoreCase) ? VideoKind.Extra : VideoKind.Main, placement.Kind);
+        Assert.Equal(extrasFolder?.ToLowerInvariant(), placement.ExtrasFolder);
+    }
+
+    [Theory]
+    [InlineData("main", null, null, "season")]
+    [InlineData("main", 1000, null, "season")]
+    [InlineData("extra", null, "Season 01", "extrasFolder")]
+    [InlineData("extra", null, null, "extrasFolder")]
+    [InlineData("sample", 1, null, "kind")]
+    public void RefusesPlacementsJellyfinWouldMisread(string kind, int? season, string? extrasFolder, string field)
+    {
+        var error = Assert.Throws<Depot.Domain.Common.DomainValidationException>(() => VideoPlacement.ForSeries(kind, season, extrasFolder));
+
+        Assert.Equal(field, error.Field);
+    }
+
+    private static OrganizationJob New(VideoPlacement? placement = null, string? reviewReason = null) =>
+        OrganizationJob.Discover(
+            "hash", "The.Last.of.Us.S01", "The.Last.of.Us.S01/ep1.mkv", 1024, Show, placement ?? VideoPlacement.Episode(1), reviewReason, Now);
 }

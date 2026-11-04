@@ -50,7 +50,11 @@ public sealed class MediaImportService(
         ImportOutcome outcome;
         try
         {
-            outcome = await organizer.ImportAsync(request, cancellationToken);
+            outcome = await organizer.ImportAsync(request, async (fileId, token) =>
+            {
+                job.ExpectFile(fileId, clock.GetUtcNow());
+                job = await jobs.UpdateAsync(job, token);
+            }, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -133,7 +137,7 @@ public sealed class MediaImportService(
 
         var folders = new LibraryFolders(organizer, paths);
         var libraryRoot = folders.RootFor(job.Target);
-        var folder = await folders.RelativeFolderAsync(job.Target, cancellationToken);
+        var folder = await folders.RelativeFolderAsync(job.Target, job.Placement, cancellationToken);
         var videoSource = LibraryPaths.CombineInside(sourceRoot, job.RelativePath);
         var videoDestination = LibraryPaths.CombineInside(libraryRoot, $"{folder}/{MediaFiles.FileName(job.RelativePath)}");
         if (videoSource is null || videoDestination is null)
@@ -141,9 +145,23 @@ public sealed class MediaImportService(
             return ImportPlan.Failed("The source or destination path points outside its folder, so it was refused.");
         }
 
+        // The video's subtitles keep their own names next to it, so they stay paired with it.
+        var downloaded = files.Where(file => file.IsDownloaded).ToList();
+        var subtitles = new List<ImportFile>();
+        foreach (var subtitle in MediaFiles.SubtitlesFor(job.RelativePath, downloaded.Select(file => file.RelativePath)))
+        {
+            var subtitleSource = LibraryPaths.CombineInside(sourceRoot, subtitle);
+            var subtitleDestination = LibraryPaths.CombineInside(libraryRoot, $"{folder}/{MediaFiles.FileName(subtitle)}");
+            if (subtitleSource is not null && subtitleDestination is not null)
+            {
+                var size = downloaded.First(file => file.RelativePath == subtitle).SizeBytes;
+                subtitles.Add(new ImportFile(subtitleSource, subtitleDestination, size));
+            }
+        }
+
         return ImportPlan.Ready(new ImportRequest(
             job.Id, job.Target.Type, mode, libraryRoot, paths.Sources.MappedRootOf(torrent.SavePath)!, sourceRoot,
-            new ImportFile(videoSource, videoDestination, video.SizeBytes)));
+            new ImportFile(videoSource, videoDestination, video.SizeBytes), subtitles));
     }
 
     private sealed record ImportPlan(ImportRequest? Request, string? Wait, string? Failure)

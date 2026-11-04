@@ -3,6 +3,7 @@ using Depot.Application.Organization;
 using Depot.Application.QBittorrent;
 using Depot.Domain.Organization;
 using Depot.Infrastructure;
+using Depot.Infrastructure.Organization;
 using Depot.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
@@ -36,17 +37,29 @@ public sealed class OrganizationHarness : IAsyncDisposable
 
     public string Series => Root.Combine("library", "series");
 
-    public static async Task<OrganizationHarness> CreateAsync()
+    // With a crash, imports stop for good at its step; see RestartAsync.
+    public static Task<OrganizationHarness> CreateAsync(Crash? crash = null)
     {
         var root = new TempDirectory();
         root.CreateFolder("downloads");
         root.CreateFolder("library", "movies");
         root.CreateFolder("library", "series");
+        return StartAsync(root, new FakeQBittorrentClient(), crash);
+    }
 
+    // Plays the next start of Depot after it was killed: new services on the same folders and
+    // database, while qBittorrent keeps running. This harness's services are left as they are,
+    // and an import stopped by a crash never resumes.
+    public Task<OrganizationHarness> RestartAsync() => StartAsync(Root, QBittorrent, null);
+
+    // Starts Depot on a folder prepared elsewhere, such as another server's restored data/.
+    public static Task<OrganizationHarness> StartOnAsync(TempDirectory root) => StartAsync(root, new FakeQBittorrentClient(), null);
+
+    private static async Task<OrganizationHarness> StartAsync(TempDirectory root, FakeQBittorrentClient qBittorrent, Crash? crash)
+    {
         var configuration = new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { ["Storage:DataDirectory"] = root.Combine("data") })
             .Build();
-        var qBittorrent = new FakeQBittorrentClient();
 
         var collection = new ServiceCollection();
         collection.AddLogging();
@@ -54,6 +67,13 @@ public sealed class OrganizationHarness : IAsyncDisposable
         collection.AddInfrastructure(configuration, new TestHostEnvironment(root.Path));
         collection.AddSingleton<IQBittorrentClient>(qBittorrent);
         collection.AddSingleton<IPathEnvironment>(new TestPathEnvironment(root.Path));
+        if (crash is not null)
+        {
+            collection.AddSingleton<IFileTransfer>(new CrashingTransfer(crash));
+            collection.AddScoped<IOrganizationJobRepository>(provider =>
+                new CrashingJobRepository(ActivatorUtilities.CreateInstance<OrganizationJobRepository>(provider), crash));
+        }
+
         var services = collection.BuildServiceProvider();
 
         await using (var scope = services.CreateAsyncScope())

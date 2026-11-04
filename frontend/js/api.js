@@ -344,5 +344,22 @@
     return runJobAction(id, 'skip');
   }
 
-  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, getLibrarySeries });
+  // POST /api/organization/jobs/{id}/classify: where a series video goes, then queues it.
+  // placement is { kind: 'main', season } (season 0 for a special) or
+  // { kind: 'extra', extrasFolder }.
+  async function classifyOrganizationJob(id, placement) {
+    const job = await request(`/api/organization/jobs/${id}/classify`, { method: 'POST', json: placement });
+    apiEvents.dispatchEvent(new Event('change'));
+    return job;
+  }
+
+  // POST /api/organization/downloads/{hash}/confirm: accepts the suggested placement of every
+  // video of the download that waits for review.
+  async function confirmOrganizationDownload(hash) {
+    const jobs = await request(`/api/organization/downloads/${encodeURIComponent(hash)}/confirm`, { method: 'POST' });
+    apiEvents.dispatchEvent(new Event('change'));
+    return jobs;
+  }
+
+  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, classifyOrganizationJob, confirmOrganizationDownload, getLibrarySeries });
 })();

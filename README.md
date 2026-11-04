@@ -75,7 +75,7 @@ comes from `.env` (not committed), and `docker compose` stops with a message if 
 | Variable | Required | What it is |
 | --- | --- | --- |
 | `PUID` / `PGID` | yes | The user and group that own the media (`id -u` and `id -g`). Depot must be able to write to the libraries and, to create hardlinks, own the downloads or be able to write to them. |
-| `DEPOT_CONFIG_DIR` | yes | Host folder mounted as `/config`: Depot's data (database, keys, token). |
+| `DEPOT_CONFIG_DIR` | yes | Host folder mounted as `/config`: Depot's data (database, keys, token). See [Backup and restore](#backup-and-restore). |
 | `MEDIA_DIR` | yes | Host folder mounted as `/data`: the same media folder qBittorrent and Jellyfin mount as `/data`. With a single mount, downloads and libraries are on the same file system and hardlinks work. |
 | `DEPOT_PORT` | no (`5080`) | Port on the host for the interface. |
 | `DEPOT_ALLOWED_HOSTS` | no (`localhost;127.0.0.1`) | Every name used in the browser to reach Depot (for example `localhost;server.lan`). |
@@ -121,6 +121,85 @@ dotnet ef migrations add <Name> \
   --startup-project backend/Depot.Api \
   --output-dir Persistence/Migrations
 ```
+
+## Backup and restore
+
+Everything Depot needs to start again on another server is in its data folder (`data/`, or `/config` in Docker):
+
+| File | Needed | What it is | If it's lost |
+| --- | --- | --- | --- |
+| `depot.db` | yes | Settings (qBittorrent, folders, path mappings), library choices and the history of every job. | Everything above is gone. |
+| `keys/*.xml` | yes | ASP.NET Data Protection keys: they decrypt the stored qBittorrent password. | Only the qBittorrent password: see [Losing the keys](#losing-the-keys). |
+| `access-token` | recommended | The token browsers send. Not there when `Auth__Token` provides it (keep your `.env` then). | A new one is created on the next start; each browser asks for it once. |
+
+Not part of a backup: the media (`/data`: downloads and libraries, back them up with your own tools), SQLite's
+`depot.db-wal`/`depot.db-shm` (the backup reads what they hold), Depot's temporary `.depot-job-*` files, and the image.
+Keep `docker-compose.yaml` and `.env` too: they hold your paths, user and allowed host names.
+
+**Don't copy `depot.db` while Depot runs.** The database is in WAL mode: recent changes live in `depot.db-wal` until
+SQLite folds them in, so a copy of `depot.db` alone can miss them, and copying the files one after another can catch
+them halfway through a write. Either use the backup command below, which uses SQLite's online backup and reads one
+consistent state while Depot keeps working, or stop Depot and copy the whole folder.
+
+### Making a backup
+
+```sh
+docker compose exec depot dotnet Depot.Api.dll --backup /config/backups
+# Backup of /config written to /config/backups/depot-backup-20261104-181911.tar.gz.
+```
+
+The archive appears in `$DEPOT_CONFIG_DIR/backups/` on the host. It holds `depot.db` (checked with SQLite's integrity
+check), `keys/`, `access-token` and `depot-backup.json` (date, Depot version, last migration, file list), all
+readable only by Depot's user. Without Docker, run the same command where Depot runs, with the same settings:
+`dotnet run --project backend/Depot.Api -- --backup ./backups`.
+
+**The archive is as sensitive as the data folder:** on Linux the keys are stored unencrypted, so whoever has the
+archive can read the qBittorrent password. Copy it off the server (a backup on the same disk dies with it), encrypted,
+for example with `gpg --symmetric` or a backup tool such as restic or borg. A nightly backup with 30 days kept, in the
+host's crontab:
+
+```sh
+15 3 * * * cd /path/to/depot && docker compose exec -T depot dotnet Depot.Api.dll --backup /config/backups >/dev/null && find /path/to/depot/config/backups -name 'depot-backup-*.tar.gz' -mtime +30 -delete
+```
+
+### Restoring on another server
+
+1. Install Docker, copy `docker-compose.yaml` and `.env`, and adjust `.env` to the new server (`PUID`/`PGID`, paths).
+2. Create the config folder and put the archive in it, owned by `PUID`:
+
+   ```sh
+   mkdir -p /path/to/depot/config/restore
+   cp depot-backup-20261104-181911.tar.gz /path/to/depot/config/restore/
+   ```
+
+3. Restore **before starting Depot**: a started Depot creates a new, empty installation, and the restore never
+   replaces one. It runs in a one-off container as Depot's user, so the files get the right owner and permissions:
+
+   ```sh
+   docker compose run --rm --no-deps depot --restore /config/restore/depot-backup-20261104-181911.tar.gz
+   # Restored the backup from 2026-11-04 18:19:11Z (3 files) into /config. Start Depot to use it.
+   docker compose up -d
+   ```
+
+4. Open Depot: the same token works (`docker compose exec depot cat /config/access-token`). In **Settings**, check the
+   qBittorrent URL and, if the media folders moved, the library folders and path mappings: they are restored as they
+   were.
+
+Before putting anything in place, the restore checks the archive: the manifest, SQLite's integrity check, and that the
+backup isn't from a newer Depot (install that version or a later one first). A backup from an older Depot is fine:
+its database is brought up to date when Depot starts. If the folder already has `depot.db`, keys or a token, nothing is
+changed. To restore over an installation, stop it (`docker compose down`), move the contents of the config folder
+away, then restore. The archive is a plain `.tar.gz`, so `tar -tzf` lists it and `tar -xzf ... -C <data folder>` also
+works on a stopped Depot, but `--restore` checks it first and sets owner, permissions and journal mode for you.
+
+### Losing the keys
+
+The keys protect only the stored qBittorrent password. If `keys/` is lost, or a database is restored with keys from
+another backup or installation, the password can't be decrypted anymore: Depot acts as if qBittorrent were never set
+up (**Settings → qBittorrent** is empty, downloads can't be listed or added, and imports wait). Everything else in the
+database is intact, and entering the qBittorrent URL, user and password again fixes it. Keep the database
+and keys of the same backup together. Data Protection adds a new key every 90 days and keeps the old ones in `keys/`,
+and a backup always takes all of them.
 
 ## Health check
 
@@ -363,9 +442,10 @@ All data in the interface comes from the API. Pages for features that don't have
 
 ## Media organization for Jellyfin
 
-You decide where each download goes when you add it. Depot **doesn't try to infer anything from
-file names**: it just puts the videos in the chosen folder, with their original names, **without touching the
-downloaded files** (it creates hardlinks or copies), and the torrent keeps seeding.
+You decide where each download goes when you add it. Depot **doesn't guess titles from file names**: it puts
+the videos in the chosen folder, with their original names, **without touching the downloaded files** (it creates
+hardlinks or copies), and the torrent keeps seeding. Within a series, it only reads the download's layout to keep
+extras, specials and other seasons out of the chosen season, and asks you whenever that layout is unclear.
 
 When you click **Add download**, the dialog asks what it is:
 
@@ -380,13 +460,51 @@ movies/Dune (2021)/Dune.2021.1080p.BluRay.mkv
 series/The Last of Us/Season 01/The.Last.of.Us.S01E01.1080p.mkv
 ```
 
-- **Only videos** (`.mkv`, `.mp4`, `.avi`, ... — list in `MediaFiles.VideoExtensions`) go to the
-  library. Subtitles, `.nfo`, images and *samples* (`sample` files or files in a `Sample` folder) stay only in the download.
+- **Only videos** (`.mkv`, `.mp4`, `.avi`, ... — list in `MediaFiles.VideoExtensions`) **and their subtitles** go to the
+  library. `.nfo`, images, *samples* (`sample` files or files in a `Sample` folder) and anything else stay only in the download.
+- **Subtitles** (`.srt`, `.ass`, `.ssa`, `.vtt`, `.sub`/`.idx`, `.sup`, `.smi` — `MediaFiles.SubtitleExtensions`) come with
+  their video when they are **named after it** (`Dune.srt`, `Dune.en.srt`, `Dune.pt-BR.forced.ass`), next to it or in a
+  `Subs`/`Subtitles` folder right below it. They keep their names, so the language suffix and the pairing Jellyfin
+  uses stay as they are, and they use the same hardlink or copy as the video. Being in the same folder isn't enough:
+  `English.srt` or `Subs/2_English.srt` belong to no video and stay in the download. A subtitle that could belong to two
+  videos (`Dune.srt` next to `Dune.mkv` and `Dune.mp4`) goes to none; with `Dune.mkv` and `Dune.Extended.mkv`, it goes to
+  the longest matching name. Subtitles are placed before the video, so after a crash the video is never there without
+  them. If the library already has a subtitle with that name, an identical one counts as imported (no duplicate) and a
+  different one is **never overwritten**: it is left out and the job says so. The job's message lists the subtitles
+  imported and left out (**Library** page).
+- **Episodes, specials and extras (series):** each video of a series download is sorted by the download's
+  *structure* before anything is imported (`SeriesVideos`):
+  - an extras folder (`Extras`, `Featurettes`, `Behind the Scenes`, `Deleted Scenes`, `Special Features`, `Trailers`,
+    `Interviews`, ...) sends the video to the matching Jellyfin extras folder inside the series:
+    `series/<series>/featurettes/`, `.../behind the scenes/`, `.../deleted scenes/`, `.../trailers/`, `.../interviews/`
+    or `.../extras/`;
+  - a season folder (`Season 2`, `S02`, `Specials`, `Season 00`) and an episode number (`S02E03`, `2x03`, `E03`,
+    `Show - 03`) give the season. **Specials are episodes of season 0, never extras**: they go to the series'
+    `Specials`/`Season 00` folder;
+  - *samples* stay in the download, as before.
+
+  When the clues agree and match the season chosen when adding, the video is imported. Otherwise it **waits for
+  review** (`NeedsReview`) with a suggestion and the reason, and is never imported before a person decides: another
+  season (a multi-season pack), a special while season 1 was chosen, an episode number inside an extras folder (the
+  series *Extras*), a name with "trailer"/"featurette"/"interview"... next to numbered episodes, an unnumbered video
+  among numbered ones (one much smaller than the episodes is suggested as an extra), or a name and folder that
+  disagree. **A word in a name only ever leads to a suggestion, never to a decision.** Downloads whose videos are all
+  named freely go to the chosen season, as before. Movies aren't sorted.
 - **Seasons:** if the series already has a folder for the season (`Season 1`, `Season 01`, or `Specials` for
   season 0), it's reused; otherwise Depot creates `Season 01`. When you pick an existing series, the dialog
   shows the seasons it already has and suggests the latest.
 - **Nothing is overwritten.** If a file with the same name already exists at the destination, the job fails with the
   reason and can be retried (**Retry**) after moving the file.
+- **Interrupted imports** (Depot killed, crash, power loss) are settled on the next start, before any new import.
+  Just before a file can appear at the destination, Depot saves with the job the identity (inode) of the file it is
+  about to publish: the downloaded file for a hardlink, the temporary copy (`.depot-job-<id>-v.tmp`, kept by the
+  final rename) for a copy. On startup, a file at the destination counts as this import's only if it has that
+  identity; **its name and size prove nothing**, since an older file, a duplicate or another job's file can match
+  both. So: nothing at the destination → the job's temporary files are removed and it runs again; the file this
+  import wrote → the job is completed; anything else → the job fails with the reason and the file is left alone
+  (skip the job if it is this video, otherwise move it and retry). Recovery never reads file contents, so it costs
+  the same for a 50 GB video, and running it again gives the same result. Without inodes (outside Linux, glibc
+  older than 2.28) a file found at the destination after a crash always goes to a person.
 - Torrents without a choice (added as *Other* or directly in qBittorrent) are never touched.
 - The choice is stored per torrent hash (`LibraryTargets` table) and shows up in the download list,
   next to the name. Removing the download through Depot deletes the choice (jobs stay as history). Adding the
@@ -410,8 +528,11 @@ container that corresponds to the same volume.
 
 Endpoints: `GET /api/library/series` (`[{ "name": "The Last of Us", "seasons": [1, 2] }]`),
 `GET|PUT /api/organization/settings`, `POST /api/organization/settings/test`,
-`GET /api/organization/status`, `GET /api/organization/jobs[?status=]`, `GET /api/organization/jobs/{id}` and
-`POST /api/organization/jobs/{id}/retry|skip`.
+`GET /api/organization/status`, `GET /api/organization/jobs[?status=]`, `GET /api/organization/jobs/{id}`,
+`POST /api/organization/jobs/{id}/retry|skip`, `POST /api/organization/jobs/{id}/classify` (series only:
+`{ "kind": "main", "season": 2 }` for an episode, season 0 for a special, or `{ "kind": "extra", "extrasFolder": "featurettes" }`)
+and `POST /api/organization/downloads/{hash}/confirm` (accepts the suggestions for every video of the download that
+waits for review).
 
 - **Symbolic links:** the downloaded file can't be a link, nor can any folder between the mapped folder and it;
   on the library side, no folder between the library root and the destination. The configured roots (library
@@ -457,9 +578,13 @@ it's the same file under another name. (In Copy mode there are two real copies.)
   mappings. **Test folders** checks the folders without saving; **Folder check** shows each resolved folder
   (with `~/` expanded), whether it can be read/written, the free space, and whether hardlinks are possible between
   downloads and library.
-- **Library**: one job per video, with source, destination, state and reason. **Retry** tries a
-  failed or skipped job again; **Skip** only marks the job: no file is changed or deleted. The number
-  in the menu counts failed jobs.
+- **Library**: one job per video, with source, placement (*Episode · Season 2*, *Special · Season 0*,
+  *Extra · featurettes*), destination, state and reason. **Retry** tries a failed or skipped job again; **Skip** only
+  marks the job: no file is changed or deleted. The **Review** filter lists the videos waiting for review:
+  **Confirm** accepts the suggestion, **Confirm all N** accepts it for every video of that download that waits, and
+  **Change** imports a series video as an episode (any season), a special or an extra (choosing the extras folder);
+  **Change** also works on waiting, failed and skipped jobs. The number in the menu counts failed jobs and those
+  waiting for review.
 
 ### Upgrading from an earlier version
 
@@ -468,6 +593,14 @@ hadn't been imported yet (in review, waiting or failed) are deleted; imported on
 as history. Downloads that were already in qBittorrent have no library choice, so they aren't
 organized; to organize one of them, remove it (keeping the files) and add it again choosing
 Movie or Series (qBittorrent only reuses what it already downloaded if the destination folder is the same).
+
+The `ClassifySeriesVideos` migration adds each job's placement (episode season, or extras folder). Jobs found by
+earlier versions keep going to the season chosen when their download was added; only downloads examined from now on
+are sorted and may wait for review.
+
+The `AddExpectedFileIdToOrganizationJobs` migration adds the identity of the file each import publishes. A job
+that was interrupted by the version before it has none: if its destination already has a file, recovery fails the
+job with the reason instead of assuming the import finished.
 
 When upgrading to the version with an access token:
 

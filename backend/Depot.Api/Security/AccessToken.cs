@@ -10,7 +10,6 @@ namespace Depot.Api.Security;
 public sealed class AccessToken
 {
     public const string SectionName = "Auth";
-    public const string FileName = "access-token";
     public const int MinLength = 32;
 
     private readonly byte[] expected;
@@ -37,7 +36,7 @@ public sealed class AccessToken
                 : throw new InvalidOperationException($"Auth:Token must have at least {MinLength} characters.");
         }
 
-        var path = Path.Combine(storage.DataDirectory, FileName);
+        var path = storage.AccessTokenPath;
         if (!File.Exists(path))
         {
             Create(path);

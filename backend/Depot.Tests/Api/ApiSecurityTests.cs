@@ -125,6 +125,21 @@ public sealed class ApiSecurityTests : IDisposable
     }
 
     [Fact]
+    public async Task AClassificationJellyfinWouldMisreadIsRefusedByField()
+    {
+        var client = factory.CreateAuthorizedClient();
+
+        using var refused = await client.PostAsJsonAsync("/api/organization/jobs/1/classify", new { kind = "extra", extrasFolder = "Season 01" });
+        using var confirmed = await client.PostAsync($"/api/organization/downloads/{Hash}/confirm", null);
+
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+        var errors = (await refused.Content.ReadFromJsonAsync<JsonElement>()).GetProperty("errors");
+        Assert.True(errors.TryGetProperty("extrasFolder", out _));
+        Assert.Equal(HttpStatusCode.OK, confirmed.StatusCode);
+        Assert.Equal(0, (await confirmed.Content.ReadFromJsonAsync<JsonElement>()).GetArrayLength());
+    }
+
+    [Fact]
     public async Task RemovingNeedsDeleteFiles()
     {
         using var response = await factory.CreateAuthorizedClient().DeleteAsync($"/api/downloads/{Hash}");

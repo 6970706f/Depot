@@ -57,6 +57,7 @@ public sealed class OrganizationJobConfiguration : IEntityTypeConfiguration<Orga
         builder.Property(job => job.MediaType).HasConversion<string>().IsRequired();
         builder.Property(job => job.Title).IsRequired();
         builder.Property(job => job.Status).HasConversion<string>().IsRequired();
+        builder.Property(job => job.Kind).HasConversion<string>().IsRequired();
         builder.Property(job => job.ImportedWith).HasConversion<string>();
         builder.Property(job => job.Version).IsConcurrencyToken();
 

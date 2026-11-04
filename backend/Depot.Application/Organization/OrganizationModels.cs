@@ -47,6 +47,16 @@ public sealed record LibraryTargetView(MediaType MediaType, string Title, int? S
     public static LibraryTargetView From(LibraryTarget target) => new(target.Type, target.Title, target.Season);
 }
 
+// Where a video goes inside its movie or series folder. Kind is "main" (the movie or an
+// episode; season 0 for a special) or "extra" (with ExtrasFolder).
+public sealed record VideoPlacementView(VideoKind Kind, int? Season, string? ExtrasFolder)
+{
+    public static VideoPlacementView From(VideoPlacement placement) => new(placement.Kind, placement.Season, placement.ExtrasFolder);
+}
+
+// A person's correction of where a series video goes; see VideoPlacement.ForSeries.
+public sealed record VideoPlacementInput(string? Kind, int? Season, string? ExtrasFolder);
+
 // DestinationPath is the final path once an import started (DestinationIsFinal), otherwise
 // where the video would go with the current settings and folders.
 public sealed record OrganizationJobView(
@@ -56,6 +66,7 @@ public sealed record OrganizationJobView(
     string RelativePath,
     long SizeBytes,
     LibraryTargetView Target,
+    VideoPlacementView Placement,
     OrganizationJobStatus Status,
     string? Message,
     string? DestinationPath,
@@ -66,7 +77,8 @@ public sealed record OrganizationJobView(
     DateTimeOffset UpdatedAt,
     DateTimeOffset? CompletedAt,
     bool CanRetry,
-    bool CanSkip);
+    bool CanSkip,
+    bool CanClassify);
 
 // A series folder already in the library, with the seasons that have a folder in it.
 public sealed record LibrarySeriesView(string Name, IReadOnlyList<int> Seasons);

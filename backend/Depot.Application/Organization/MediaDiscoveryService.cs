@@ -42,15 +42,31 @@ public sealed class MediaDiscoveryService(
                 continue;
             }
 
-            // Only the videos go to the library; samples, subtitles and everything else stay
-            // in the download.
+            // One job per video; its subtitles come along when it's imported. Samples, other
+            // subtitles and everything else stay in the download.
             var now = clock.GetUtcNow();
-            var newJobs = files
+            var videos = files
                 .Where(file => file.IsDownloaded && MediaFiles.IsVideo(file.RelativePath) && !MediaFiles.IsSample(file.RelativePath))
-                .Select(file => OrganizationJob.Discover(torrent.Hash, torrent.Name, file.RelativePath, file.SizeBytes, target, now))
+                .ToList();
+            // A series download is sorted into episodes, specials and extras; anything uncertain
+            // waits for a person. A movie download goes to the movie's folder as before.
+            var classifications = target.Type == MediaType.Series
+                ? SeriesVideos.Classify(videos.Select(video => new SeriesVideo(video.RelativePath, video.SizeBytes)).ToList(), target.Season!.Value)
+                : null;
+            var newJobs = videos
+                .Select(video => classifications?[video.RelativePath] ?? new VideoClassification(VideoPlacement.Movie, null))
+                .Zip(videos, (classification, video) => OrganizationJob.Discover(
+                    torrent.Hash, torrent.Name, video.RelativePath, video.SizeBytes, target,
+                    classification.Placement, classification.ReviewReason, now))
                 .ToList();
             await jobs.AddScanAsync(torrent.Hash, newJobs, now, cancellationToken);
             examined++;
+
+            var toReview = newJobs.Count(job => job.Status == OrganizationJobStatus.NeedsReview);
+            if (toReview > 0)
+            {
+                logger.LogInformation("{Count} video(s) of {TorrentName} wait for review before importing.", toReview, torrent.Name);
+            }
 
             if (newJobs.Count == 0)
             {

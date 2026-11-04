@@ -64,8 +64,10 @@ public sealed class OrganizationFlowTests
         Assert.Equal(ImportMode.Hardlink, job.ImportedWith);
         var destination = Path.Join(harness.Movies, "Dune (2021)", "Dune.2021.1080p.mkv");
         Assert.Equal(destination, job.DestinationPath);
-        // Only the video: subtitles, samples and anything else stay in the download.
-        Assert.Equal([destination], Directory.GetFiles(Path.Join(harness.Movies, "Dune (2021)")));
+        // The video and its subtitle: samples and anything else stay in the download.
+        Assert.Equal(
+            [Path.Join(harness.Movies, "Dune (2021)", "Dune.2021.1080p.en.srt"), destination],
+            Directory.GetFiles(Path.Join(harness.Movies, "Dune (2021)")).Order(StringComparer.Ordinal));
         Assert.Equal(original, await File.ReadAllBytesAsync(destination));
         // The torrent stays in qBittorrent and its files stay where it seeds them from.
         Assert.Single(harness.QBittorrent.Torrents);
@@ -90,8 +92,10 @@ public sealed class OrganizationFlowTests
         var season = Path.Join(harness.Series, "The Last of Us", "Season 01");
         Assert.All(await harness.JobsAsync(), job => Assert.Equal(OrganizationJobStatus.Completed, job.Status));
         Assert.Equal(
-            ["[Group] TLOU - 01 [1080p].mkv", "whatever.mp4"],
+            ["[Group] TLOU - 01 [1080p].ass", "[Group] TLOU - 01 [1080p].mkv"],
             Directory.GetFiles(season).Select(Path.GetFileName).Order(StringComparer.Ordinal));
+        // What the release keeps in Extras goes to the series' extras folder, not into the season.
+        Assert.True(File.Exists(Path.Join(harness.Series, "The Last of Us", "extras", "whatever.mp4")));
     }
 
     [Fact]

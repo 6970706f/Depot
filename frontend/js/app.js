@@ -112,8 +112,8 @@
       setText(document.getElementById('nav-download-count'), stats.value.active ? String(stats.value.active) : '');
     }
     if (organization.status === 'fulfilled') {
-      // Imports that failed and wait for a person.
-      const waiting = organization.value.counts.failed;
+      // Imports that wait for a person: failed, or held for review.
+      const waiting = organization.value.counts.failed + (organization.value.counts.needsReview ?? 0);
       setText(document.getElementById('nav-library-count'), waiting ? String(waiting) : '');
     }
 

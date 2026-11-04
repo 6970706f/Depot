@@ -11,7 +11,10 @@ public sealed class OrganizationRecoveryService(
 {
     // Runs once at startup, before any import. Each interrupted import is inspected on disk
     // before anything is repeated: nothing is assumed to have finished. The destination is
-    // recorded before any file is written, so every temporary file belongs to one of these.
+    // recorded before any file is written, so every temporary file belongs to one of these, and
+    // the identity of the file to publish is recorded before it appears, so a file at the
+    // destination is recognized as this import's or left alone. Running it again after a
+    // crash in the middle gives the same result.
     public async Task<int> RecoverAsync(CancellationToken cancellationToken)
     {
         var interrupted = await jobs.ListByStatusAsync(OrganizationJobStatus.Processing, cancellationToken);
@@ -33,11 +36,12 @@ public sealed class OrganizationRecoveryService(
             return;
         }
 
-        var outcome = await organizer.RecoverAsync(new RecoveryRequest(job.Id, job.DestinationPath, job.SizeBytes), cancellationToken);
+        var outcome = await organizer.RecoverAsync(
+            new RecoveryRequest(job.Id, job.DestinationPath, job.SizeBytes, job.ExpectedFileId), cancellationToken);
         switch (outcome.Result)
         {
             case RecoveryResult.Completed:
-                job.Complete(null, "The import finished just before Depot stopped; the file was checked on startup.", now);
+                job.Complete(null, "The import finished just before Depot stopped; on startup, the file in the library was confirmed to be the one it wrote.", now);
                 break;
             case RecoveryResult.NotStarted:
                 job.ReturnToQueue("Depot stopped during this import. It was cleaned up and will run again.", now);

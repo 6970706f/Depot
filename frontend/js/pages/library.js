@@ -1,10 +1,14 @@
 (() => {
   'use strict';
 
-  const { createPanel, getOrganizationJobs, getOrganizationStatus, h, icon, keyedList, retryOrganizationJob, segmentedButtons, setText, skipOrganizationJob, toast } = MediaFlow;
+  const {
+    classifyOrganizationJob, confirmOrganizationDownload, createPanel, getOrganizationJobs, getOrganizationStatus, h, icon, keyedList,
+    retryOrganizationJob, segmentedButtons, selectControl, setText, skipOrganizationJob, toast,
+  } = MediaFlow;
 
   const FILTERS = [
     { value: 'all', label: 'All' },
+    { value: 'review', label: 'Review' },
     { value: 'attention', label: 'Failed' },
     { value: 'waiting', label: 'Waiting' },
     { value: 'completed', label: 'Imported' },
@@ -12,6 +16,7 @@
   ];
 
   const FILTER_STATUSES = {
+    review: ['needsReview'],
     attention: ['failed'],
     waiting: ['discovered', 'processing'],
     completed: ['completed'],
@@ -20,6 +25,7 @@
 
   const STATUS = {
     discovered: { label: 'Waiting', icon: 'list' },
+    needsReview: { label: 'Needs review', icon: 'alert' },
     processing: { label: 'Importing', icon: 'arrow-down' },
     completed: { label: 'Imported', icon: 'check' },
     failed: { label: 'Failed', icon: 'alert' },
@@ -39,6 +45,67 @@
     return `Series · ${target.title} · ${target.season === 0 ? 'Specials' : `Season ${target.season}`}`;
   }
 
+  // The folders Jellyfin reads series extras from (ExtrasFolders.Names on the server).
+  const EXTRAS_FOLDERS = ['extras', 'featurettes', 'behind the scenes', 'deleted scenes', 'trailers', 'interviews'];
+
+  // Where a series video goes inside the series folder; null for a movie.
+  function describePlacement(job) {
+    if (job.target.mediaType !== 'series') return null;
+    const { kind, season, extrasFolder } = job.placement;
+    if (kind === 'extra') return `Extra · ${extrasFolder}`;
+    return season === 0 ? 'Special · Season 0' : `Episode · Season ${season}`;
+  }
+
+  // Episode, special or extra, with its season or extras folder, as a small form. Submitting
+  // imports the video there on the next pass.
+  function createPlacementEditor(job, { onSave, onCancel }) {
+    const { kind, season, extrasFolder } = job.placement;
+    const initialRole = kind === 'extra' ? 'extra' : season === 0 ? 'special' : 'episode';
+    const role = selectControl({
+      label: 'Import as',
+      value: initialRole,
+      options: [
+        { value: 'episode', label: 'Episode' },
+        { value: 'special', label: 'Special (season 0)' },
+        { value: 'extra', label: 'Extra' },
+      ],
+      onChange: update,
+    });
+    const seasonInput = h('input', {
+      class: 'input placement-season', type: 'number', min: '1', max: '999', inputmode: 'numeric',
+      value: String(season && season > 0 ? season : job.target.season || 1), 'aria-label': 'Season',
+    });
+    const folder = selectControl({
+      label: 'Extras folder',
+      value: extrasFolder ?? 'extras',
+      options: EXTRAS_FOLDERS.map((name) => ({ value: name, label: name })),
+    });
+    const save = h('button', { class: 'btn btn-primary', type: 'submit', textContent: 'Import as this' });
+
+    function update() {
+      const chosen = role.querySelector('select').value;
+      seasonInput.hidden = chosen !== 'episode';
+      folder.hidden = chosen !== 'extra';
+    }
+
+    const el = h('form', {
+      class: 'placement-editor',
+      onSubmit: (event) => {
+        event.preventDefault();
+        const chosen = role.querySelector('select').value;
+        const placement = chosen === 'extra'
+          ? { kind: 'extra', extrasFolder: folder.querySelector('select').value }
+          : { kind: 'main', season: chosen === 'special' ? 0 : Number(seasonInput.value) };
+        onSave(placement, save);
+      },
+    },
+      role, seasonInput, folder, save,
+      h('button', { class: 'btn', type: 'button', textContent: 'Cancel', onClick: onCancel }),
+    );
+    update();
+    return el;
+  }
+
   function fileName(path) {
     return path.slice(path.lastIndexOf('/') + 1);
   }
@@ -53,6 +120,8 @@
   function createJobRow() {
     const el = h('li', { class: 'job' });
     let signature = null;
+    let current = null;
+    let editing = false;
     const busy = new Set();
 
     async function run(kind, button, action) {
@@ -71,6 +140,37 @@
 
     function actions(job) {
       const buttons = [];
+      if (job.status === 'needsReview') {
+        const confirm = h('button', {
+          class: 'btn btn-primary', type: 'button', textContent: 'Confirm',
+          onClick: () => run('classify', confirm, async () => {
+            await classifyOrganizationJob(job.id, job.placement);
+            toast(`Queued as ${describePlacement(job)}`);
+          }),
+        });
+        buttons.push(confirm);
+      }
+      if (job.status === 'needsReview' && job.reviewInDownload > 1) {
+        const confirmAll = h('button', {
+          class: 'btn', type: 'button', textContent: `Confirm all ${job.reviewInDownload}`,
+          title: 'Accept the suggestion for every video of this download that waits for review',
+          onClick: () => run('confirm-all', confirmAll, async () => {
+            const confirmed = await confirmOrganizationDownload(job.torrentHash);
+            toast(`Queued ${confirmed.length} video(s) as suggested`);
+          }),
+        });
+        buttons.push(confirmAll);
+      }
+      if (job.canClassify && !editing) {
+        buttons.push(h('button', {
+          class: 'btn', type: 'button', textContent: 'Change',
+          onClick: () => {
+            editing = true;
+            render(current);
+            el.querySelector('.placement-editor select')?.focus();
+          },
+        }));
+      }
       if (job.canRetry) {
         const retry = h('button', {
           class: 'btn', type: 'button', textContent: 'Retry',
@@ -95,8 +195,24 @@
     }
 
     function render(job) {
+      current = job;
+      if (!job.canClassify) editing = false;
       const status = STATUS[job.status];
       const destination = `${job.destinationPath}${job.destinationIsFinal ? '' : ' (planned)'}`;
+      const placement = describePlacement(job);
+      const editor = editing
+        ? createPlacementEditor(job, {
+          onSave: (chosen, button) => run('classify', button, async () => {
+            await classifyOrganizationJob(job.id, chosen);
+            editing = false;
+            toast('Queued for import there');
+          }),
+          onCancel: () => {
+            editing = false;
+            render(current);
+          },
+        })
+        : null;
 
       el.dataset.status = job.status;
       el.replaceChildren(
@@ -105,9 +221,12 @@
             h('strong', { textContent: fileName(job.relativePath) }),
             h('span', { class: 'job-kind', textContent: describeTarget(job.target) })),
           h('p', { class: 'job-line' }, h('span', { class: 'job-label', textContent: 'From' }), `${job.torrentName} › ${job.relativePath}`),
+          placement ? h('p', { class: 'job-line' }, h('span', { class: 'job-label', textContent: 'As' }),
+            job.status === 'needsReview' ? `${placement} (suggested)` : placement) : null,
           h('p', { class: 'job-line' }, h('span', { class: 'job-label', textContent: 'To' }), destination),
           job.message ? h('p', { class: 'job-message', 'data-kind': job.status === 'failed' ? 'error' : 'info', textContent: job.message }) : null,
           [describeImport(job)].filter(Boolean).map((note) => h('p', { class: 'job-note', textContent: note })),
+          editor,
         ),
         h('div', { class: 'job-side' },
           h('span', { class: 'status', 'data-status': job.status }, icon(status.icon), status.label),
@@ -121,6 +240,7 @@
       // Redrawn only when the job changed, so refreshes keep focus on its buttons.
       update(job) {
         const next = JSON.stringify(job);
+        // An open editor is only redrawn when the job changed, so polling keeps what's typed.
         if (next === signature) return;
         const hadFocus = el.contains(document.activeElement);
         signature = next;
@@ -193,8 +313,14 @@
         } else if (!visible.length) {
           panel.empty({ key: 'filtered', title: 'No jobs match this filter', hint: 'Choose another filter to see more.' });
         } else {
+          // Each row knows how many videos of its download wait for review, to offer
+          // confirming them together.
+          const reviewCounts = new Map();
+          for (const job of jobs) {
+            if (job.status === 'needsReview') reviewCounts.set(job.torrentHash, (reviewCounts.get(job.torrentHash) ?? 0) + 1);
+          }
           panel.content(list);
-          renderRows(visible);
+          renderRows(visible.map((job) => ({ ...job, reviewInDownload: reviewCounts.get(job.torrentHash) ?? 0 })));
         }
       }
 

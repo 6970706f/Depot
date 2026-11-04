@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
+
 namespace Depot.Infrastructure;
 
 public sealed class StorageOptions
@@ -25,9 +28,22 @@ public sealed class StoragePaths
 
     public string DataDirectory { get; }
 
+    // Data Protection's key ring: the keys that decrypt the stored qBittorrent password.
     public string KeysDirectory => Path.Combine(DataDirectory, "keys");
 
+    // The access token, unless Auth:Token provides it.
+    public string AccessTokenPath => Path.Combine(DataDirectory, "access-token");
+
     public string DatabasePath => Path.Combine(DataDirectory, "depot.db");
+
+    // Storage:DataDirectory, relative to the content root. Creates data/ and data/keys/ readable
+    // only by the user running Depot: the keys that encrypt stored passwords are kept unencrypted
+    // on Linux.
+    public static StoragePaths From(IConfiguration configuration, IHostEnvironment environment)
+    {
+        var options = configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions();
+        return new StoragePaths(Path.GetFullPath(options.DataDirectory, environment.ContentRootPath));
+    }
 
     // Creates the folder, or narrows the permissions of one that already exists. Elsewhere than
     // on Unix the system's own access rules apply.

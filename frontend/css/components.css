@@ -1239,6 +1239,26 @@ tr:focus-within .row-actions {
   color: var(--danger);
 }
 
+.status[data-status="needsReview"] {
+  color: var(--text);
+}
+
+.placement-editor {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.placement-editor [hidden] {
+  display: none;
+}
+
+.placement-season {
+  width: 6rem;
+}
+
 @container page (width < 42rem) {
   .job {
     grid-template-columns: minmax(0, 1fr);

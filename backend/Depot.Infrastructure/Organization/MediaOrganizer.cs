@@ -85,7 +85,7 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
 
     // The video's folder is shared with earlier imports (other episodes, or other videos of the
     // same movie), so the file is placed on its own without ever replacing an existing one.
-    public async Task<ImportOutcome> ImportAsync(ImportRequest request, CancellationToken cancellationToken)
+    public async Task<ImportOutcome> ImportAsync(ImportRequest request, ExpectFileAsync expectFile, CancellationToken cancellationToken)
     {
         var problem = Validate(request);
         if (problem is not null)
@@ -102,41 +102,137 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         }
 
         var createdFolders = new List<string>();
+        var placedSubtitles = new List<string>();
         try
         {
             CreateFolders(request.LibraryRoot, folder, createdFolders);
+            // Subtitles first: once the video is in place, so is everything that comes with it,
+            // which is what recovery relies on when it finds the video after a crash.
+            var subtitles = await PlaceSubtitlesAsync(request, folder, placedSubtitles, cancellationToken);
             var usedMode = await PlaceAsync(
                 request.Video.SourcePath, destination, request.Video.SizeBytes, request.Mode,
-                TemporaryPath(folder, request.JobId), cancellationToken);
+                TemporaryPath(folder, request.JobId, "v"), expectFile, cancellationToken);
 
             var final = new FileInfo(destination);
             if (!final.Exists || final.Length != request.Video.SizeBytes)
             {
-                Undo(destination, createdFolders);
+                Undo([destination, .. placedSubtitles], createdFolders);
                 return ImportOutcome.Failed($"{destination} isn't complete in the library after the import.");
             }
 
-            return ImportOutcome.Completed(usedMode);
+            return ImportOutcome.Completed(usedMode, subtitles);
         }
         catch (DestinationTaken taken)
         {
-            Undo(null, createdFolders);
+            Undo(placedSubtitles, createdFolders);
             return Conflict(request, taken.Path);
         }
         catch (ImportFailure failure)
         {
-            Undo(null, createdFolders);
+            Undo(placedSubtitles, createdFolders);
             return ImportOutcome.Failed(failure.Message);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            Undo(null, createdFolders);
+            Undo(placedSubtitles, createdFolders);
             return ImportOutcome.Failed(Describe(exception, folder));
         }
-        catch (OperationCanceledException)
+        catch
         {
-            Undo(null, createdFolders);
+            // Cancelled, or the job couldn't be saved: the video wasn't published.
+            Undo(placedSubtitles, createdFolders);
             throw;
+        }
+    }
+
+    // Places each subtitle the way the video is placed. A subtitle never holds the video back
+    // and never replaces anything: one already there with the same content counts as imported
+    // (a repeated import, or a copy shipped twice in the torrent), and one that can't be placed
+    // is left out and named in the returned note, which also lists those imported.
+    private async Task<string?> PlaceSubtitlesAsync(ImportRequest request, string folder, List<string> placed, CancellationToken cancellationToken)
+    {
+        var imported = new List<string>();
+        var skipped = new List<string>();
+        for (var index = 0; index < request.Subtitles.Count; index++)
+        {
+            var subtitle = request.Subtitles[index];
+            var name = Path.GetFileName(subtitle.DestinationPath);
+            if (ValidateSubtitle(request, subtitle) is { } problem)
+            {
+                skipped.Add($"{name} ({problem.TrimEnd('.')})");
+                continue;
+            }
+
+            try
+            {
+                if (!Exists(subtitle.DestinationPath))
+                {
+                    await PlaceAsync(
+                        subtitle.SourcePath, subtitle.DestinationPath, subtitle.SizeBytes, request.Mode,
+                        TemporaryPath(folder, request.JobId, $"s{index}"), null, cancellationToken);
+                    placed.Add(subtitle.DestinationPath);
+                }
+                else if (!await SameContentAsync(subtitle.SourcePath, subtitle.DestinationPath, cancellationToken))
+                {
+                    throw new DestinationTaken(subtitle.DestinationPath);
+                }
+
+                if (!imported.Contains(name, StringComparer.Ordinal))
+                {
+                    imported.Add(name);
+                }
+            }
+            catch (DestinationTaken)
+            {
+                skipped.Add($"{name} (a different file with that name is already there; nothing was overwritten)");
+            }
+            catch (ImportFailure failure)
+            {
+                skipped.Add($"{name} ({failure.Message.TrimEnd('.')})");
+            }
+        }
+
+        var notes = new List<string>();
+        if (imported.Count > 0)
+        {
+            notes.Add($"Subtitles imported: {string.Join(", ", imported)}.");
+        }
+
+        if (skipped.Count > 0)
+        {
+            notes.Add($"Subtitles left out: {string.Join("; ", skipped)}.");
+        }
+
+        return notes.Count == 0 ? null : string.Join(' ', notes);
+    }
+
+    // Subtitles are small, so comparing them whole is cheap. Only regular files are compared.
+    private static async Task<bool> SameContentAsync(string first, string second, CancellationToken cancellationToken)
+    {
+        var secondInfo = new FileInfo(second);
+        if (!secondInfo.Exists || secondInfo.LinkTarget is not null || secondInfo.Length != new FileInfo(first).Length)
+        {
+            return false;
+        }
+
+        const int chunk = 64 * 1024;
+        await using var a = new FileStream(first, FileMode.Open, FileAccess.Read, FileShare.Read, chunk, FileOptions.Asynchronous);
+        await using var b = new FileStream(second, FileMode.Open, FileAccess.Read, FileShare.Read, chunk, FileOptions.Asynchronous);
+        var left = new byte[chunk];
+        var right = new byte[chunk];
+        while (true)
+        {
+            var read = await a.ReadAtLeastAsync(left, chunk, throwOnEndOfStream: false, cancellationToken);
+            var other = await b.ReadAtLeastAsync(right, chunk, throwOnEndOfStream: false, cancellationToken);
+            if (read != other || !left.AsSpan(0, read).SequenceEqual(right.AsSpan(0, other)))
+            {
+                return false;
+            }
+
+            if (read < chunk)
+            {
+                return true;
+            }
         }
     }
 
@@ -151,34 +247,56 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
             }
         }
 
-        // The video is published under its final name only once it's complete, so its presence
-        // means the import finished.
-        var video = new FileInfo(request.DestinationPath);
+        var destination = request.DestinationPath;
+        var video = new FileInfo(destination);
         if (!video.Exists)
         {
             return Task.FromResult(new RecoveryOutcome(RecoveryResult.NotStarted, null));
+        }
+
+        // A name and a size could belong to any file: an older one, a duplicate, or another
+        // job's. Only the identity recorded before publishing shows this import put it there. The
+        // video is published under its final name only once it's complete, so if it's ours, it's whole.
+        var fileId = transfer.FileId(destination);
+        if (request.ExpectedFileId is null || fileId is null)
+        {
+            return Task.FromResult(new RecoveryOutcome(
+                RecoveryResult.Failed,
+                $"{destination} is in the library, but Depot can't confirm this import wrote it, so it was left alone. If it's this video, skip the job; otherwise move it away, then retry."));
+        }
+
+        if (fileId != request.ExpectedFileId)
+        {
+            return Task.FromResult(new RecoveryOutcome(
+                RecoveryResult.Failed,
+                $"{destination} is in the library, but it isn't the file this import wrote, so it was left alone. If it's this video, skip the job; otherwise move it away, then retry."));
         }
 
         return Task.FromResult(video.Length == request.SizeBytes
             ? new RecoveryOutcome(RecoveryResult.Completed, null)
             : new RecoveryOutcome(
                 RecoveryResult.Failed,
-                $"{request.DestinationPath} exists but has {video.Length} bytes instead of {request.SizeBytes}. Check it, then retry."));
+                $"{destination} exists but has {video.Length} bytes instead of {request.SizeBytes}. Check it, then retry."));
     }
 
     // Hardlinks when the mode allows and the system agrees, otherwise copies. A hardlink goes
     // straight to its final name (the system refuses existing names); a copy is written under
-    // temporaryPath first, checked, and moved in without overwriting.
+    // temporaryPath first, checked, and moved in without overwriting. Either way, the identity
+    // of the video to publish is saved with the job before it can appear at the destination;
+    // subtitles pass no expectFile.
     private async Task<ImportMode> PlaceAsync(
         string source,
         string destination,
         long size,
         ImportMode mode,
         string temporaryPath,
+        ExpectFileAsync? expectFile,
         CancellationToken cancellationToken)
     {
         if (mode != ImportMode.Copy)
         {
+            // A hardlink is the downloaded file itself under a second name.
+            await ExpectAsync(source, expectFile, cancellationToken);
             var link = transfer.TryCreateHardLink(source, destination);
             switch (link)
             {
@@ -198,7 +316,8 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         RemoveTemporary(temporaryPath);
         try
         {
-            await CopyAsync(source, temporaryPath, size, cancellationToken);
+            // The move below keeps the temporary file's identity.
+            await CopyAsync(source, temporaryPath, size, () => ExpectAsync(temporaryPath, expectFile, cancellationToken), cancellationToken);
             try
             {
                 File.Move(temporaryPath, destination, overwrite: false);
@@ -217,7 +336,26 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         return ImportMode.Copy;
     }
 
-    private async Task CopyAsync(string source, string destination, long size, CancellationToken cancellationToken)
+    // Where the system can't tell a file's identity the import still goes on, but a crash right
+    // after it is left for a person to check.
+    private async Task ExpectAsync(string path, ExpectFileAsync? expectFile, CancellationToken cancellationToken)
+    {
+        if (expectFile is null)
+        {
+            return;
+        }
+
+        if (transfer.FileId(path) is { } fileId)
+        {
+            await expectFile(fileId, cancellationToken);
+        }
+        else
+        {
+            logger.LogWarning("Couldn't read the identity of {Path}; if Depot stops during this import, a person must check it.", path);
+        }
+    }
+
+    private async Task CopyAsync(string source, string destination, long size, Func<Task> created, CancellationToken cancellationToken)
     {
         var folder = Path.GetDirectoryName(destination)!;
         var available = diskSpace.AvailableBytes(folder);
@@ -227,7 +365,7 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
                 $"Not enough free space in {folder}: the copy needs {FormatBytes(size)} and only {FormatBytes(available.Value)} is free.");
         }
 
-        await transfer.CopyAsync(source, destination, cancellationToken);
+        await transfer.CopyAsync(source, destination, created, cancellationToken);
         var copied = new FileInfo(destination).Length;
         if (copied != size)
         {
@@ -261,6 +399,31 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
             return $"{file.DestinationPath} isn't a valid destination, so it was refused.";
         }
 
+        if (FindLinkedFolder(request.LibraryRoot, videoFolder!) is { } linkedDestination)
+        {
+            return $"{linkedDestination} in the library is a symbolic link, so the import was refused.";
+        }
+
+        return SourceProblem(request, file);
+    }
+
+    // A subtitle goes next to the video (whose folder is validated above), under a visible name,
+    // and comes from the torrent's folder like the video.
+    private static string? ValidateSubtitle(ImportRequest request, ImportFile subtitle)
+    {
+        var destination = Path.GetFullPath(subtitle.DestinationPath);
+        if (Path.GetDirectoryName(destination) != Path.GetDirectoryName(Path.GetFullPath(request.Video.DestinationPath))
+            || Path.GetFileName(destination).StartsWith('.'))
+        {
+            return "its destination isn't next to the video";
+        }
+
+        return SourceProblem(request, subtitle);
+    }
+
+    // A source must be a regular file inside the torrent's folder, reached through real folders.
+    private static string? SourceProblem(ImportRequest request, ImportFile file)
+    {
         var source = Path.GetFullPath(file.SourcePath);
         if (!LibraryPaths.IsSameOrInside(source, request.SourceRoot) || source == Path.TrimEndingDirectorySeparator(request.SourceRoot))
         {
@@ -288,11 +451,6 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         if (FindLinkedFolder(request.DownloadsRoot, Path.GetDirectoryName(source)!) is { } linkedSource)
         {
             return $"{linkedSource} is a symbolic link. Depot only reads downloads through real folders.";
-        }
-
-        if (FindLinkedFolder(request.LibraryRoot, videoFolder!) is { } linkedDestination)
-        {
-            return $"{linkedDestination} in the library is a symbolic link, so the import was refused.";
         }
 
         if (info.Length != file.SizeBytes)
@@ -337,11 +495,11 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         }
     }
 
-    // Removes what this import added: its own file, then the folders it created if they're
+    // Removes what this import added: the files it placed, then the folders it created if they're
     // still empty. A hardlink removed this way leaves the downloaded original untouched.
-    private void Undo(string? placedFile, List<string> createdFolders)
+    private void Undo(IEnumerable<string> placedFiles, List<string> createdFolders)
     {
-        if (placedFile is not null)
+        foreach (var placedFile in placedFiles)
         {
             TryDelete(() => File.Delete(placedFile));
         }
@@ -408,7 +566,8 @@ public sealed class MediaOrganizer(IFileTransfer transfer, IDiskSpace diskSpace,
         _ => exception.Message,
     };
 
-    private static string TemporaryPath(string folder, int jobId) => Path.Join(folder, $"{TemporaryPrefix}{jobId}-v.tmp");
+    // "v" for the video, "s0", "s1"... for its subtitles; recovery removes them all by the job id.
+    private static string TemporaryPath(string folder, int jobId, string part) => Path.Join(folder, $"{TemporaryPrefix}{jobId}-{part}.tmp");
 
     private static bool Exists(string path) => File.Exists(path) || Directory.Exists(path);
 

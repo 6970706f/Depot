@@ -42,6 +42,46 @@ public sealed class OrganizationJobService(
         return await ToViewAsync(job, await FoldersAsync(cancellationToken), cancellationToken);
     }
 
+    // Confirms or corrects where a series video goes, and queues it for import there.
+    public async Task<OrganizationJobView> ClassifyAsync(int id, VideoPlacementInput input, CancellationToken cancellationToken)
+    {
+        var placement = VideoPlacement.ForSeries(input.Kind, input.Season, input.ExtrasFolder);
+        var job = await FindAsync(id, cancellationToken);
+        job.Classify(placement, clock.GetUtcNow());
+        job = await jobs.UpdateAsync(job, cancellationToken);
+        logger.LogInformation("Job {JobId} ({RelativePath}) classified as {Placement}.", job.Id, job.RelativePath, placement);
+        signal.RequestPass();
+        return await ToViewAsync(job, await FoldersAsync(cancellationToken), cancellationToken);
+    }
+
+    // Accepts the suggested placement of every video of a download that waits for review, as
+    // for a pack of several seasons. Returns the jobs it confirmed.
+    public async Task<IReadOnlyList<OrganizationJobView>> ConfirmDownloadAsync(string torrentHash, CancellationToken cancellationToken)
+    {
+        var confirmed = new List<OrganizationJob>();
+        foreach (var job in await jobs.ListByStatusAsync(OrganizationJobStatus.NeedsReview, cancellationToken))
+        {
+            if (!job.TorrentHash.Equals(torrentHash, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            job.Classify(job.Placement, clock.GetUtcNow());
+            confirmed.Add(await jobs.UpdateAsync(job, cancellationToken));
+        }
+
+        logger.LogInformation("Confirmed {Count} video(s) of download {Hash} as suggested.", confirmed.Count, torrentHash);
+        signal.RequestPass();
+        var folders = await FoldersAsync(cancellationToken);
+        var views = new List<OrganizationJobView>();
+        foreach (var job in confirmed)
+        {
+            views.Add(await ToViewAsync(job, folders, cancellationToken));
+        }
+
+        return views;
+    }
+
     // Skipping only changes the job: nothing is deleted, in the library or in the download.
     public async Task<OrganizationJobView> SkipAsync(int id, CancellationToken cancellationToken)
     {
@@ -79,13 +119,13 @@ public sealed class OrganizationJobService(
             ? job.DestinationPath
             : Path.Join(
                 folders.RootFor(job.Target),
-                await folders.RelativeFolderAsync(job.Target, cancellationToken),
+                await folders.RelativeFolderAsync(job.Target, job.Placement, cancellationToken),
                 MediaFiles.FileName(job.RelativePath));
 
         return new OrganizationJobView(
             job.Id, job.TorrentHash, job.TorrentName, job.RelativePath, job.SizeBytes, LibraryTargetView.From(job.Target),
-            job.Status, job.Message, destination, isFinal, job.ImportedWith, job.Attempts, job.CreatedAt, job.UpdatedAt,
-            job.CompletedAt, job.CanRetry, job.CanSkip);
+            VideoPlacementView.From(job.Placement), job.Status, job.Message, destination, isFinal, job.ImportedWith, job.Attempts,
+            job.CreatedAt, job.UpdatedAt, job.CompletedAt, job.CanRetry, job.CanSkip, job.CanClassify);
     }
 
     private static string CamelCase(string name) => char.ToLowerInvariant(name[0]) + name[1..];

@@ -21,10 +21,7 @@ public static class DependencyInjection
         IConfiguration configuration,
         IHostEnvironment environment)
     {
-        var storageOptions = configuration.GetSection(StorageOptions.SectionName).Get<StorageOptions>() ?? new StorageOptions();
-        // Creates data/ and data/keys/ readable only by the user running Depot: the keys that
-        // encrypt stored passwords are kept unencrypted on Linux.
-        var storage = new StoragePaths(Path.GetFullPath(storageOptions.DataDirectory, environment.ContentRootPath));
+        var storage = StoragePaths.From(configuration, environment);
         services.AddSingleton(storage);
 
         services.AddDataProtection()

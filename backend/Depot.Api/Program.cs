@@ -6,12 +6,20 @@ using Depot.Api.Health;
 using Depot.Api.Security;
 using Depot.Application;
 using Depot.Infrastructure;
+using Depot.Infrastructure.Backup;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.Extensions.FileProviders;
 
 if (args is ["--healthcheck"])
 {
     return await HealthProbe.RunAsync();
+}
+
+// "--backup <folder>" or "--restore <archive>": the app's configuration, without starting it.
+if (BackupCommand.Handles(args))
+{
+    var settings = WebApplication.CreateBuilder();
+    return await BackupCommand.RunAsync(args, settings.Configuration, settings.Environment, Console.Out);
 }
 
 var builder = WebApplication.CreateBuilder(args);
