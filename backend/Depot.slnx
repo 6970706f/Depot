@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="Depot.Api/Depot.Api.csproj" />
+  <Project Path="Depot.Application/Depot.Application.csproj" />
+  <Project Path="Depot.Domain/Depot.Domain.csproj" />
+  <Project Path="Depot.Infrastructure/Depot.Infrastructure.csproj" />
+  <Project Path="Depot.Tests/Depot.Tests.csproj" />
+</Solution>

@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet restore backend/Depot.slnx
+      - run: dotnet build backend/Depot.slnx --no-restore --configuration Release
+      - run: dotnet test backend/Depot.slnx --no-build --configuration Release
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # No build step: checking that every script parses catches what a broken deploy would show.
+      - run: for file in $(git ls-files 'frontend/*.js'); do node --check "$file"; done
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag depot:ci .

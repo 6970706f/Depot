@@ -1,0 +1,28 @@
+# Example: Depot next to qBittorrent and Jellyfin, all mounting the same media folder as /data.
+#
+#   mkdir -p ~/containers/depot          # before the first start, so it belongs to you, not root
+#   docker compose up -d --build
+#   docker compose exec depot cat /config/access-token
+#
+# Then open http://localhost:5080 and paste the token.
+services:
+  depot:
+    build: .
+    image: depot:latest
+    container_name: depot
+    restart: unless-stopped
+    # The same user that owns the media files (see `id -u` and `id -g`). Depot must be able to
+    # write to the libraries, and to hardlink the downloads it needs to own them or write to them.
+    user: "1000:100"
+    ports:
+      - "5080:8080"
+    environment:
+      # Every name used in the browser to reach Depot, such as the server's name on the network.
+      AllowedHosts: "localhost;127.0.0.1"
+    volumes:
+      - ~/containers/depot:/config
+      - ~/containers/media:/data
+    # Lets Depot reach a qBittorrent running on the host as http://host.docker.internal:8080.
+    # In the same compose project, use the service name instead, such as http://qbittorrent:8080.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

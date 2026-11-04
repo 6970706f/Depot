@@ -1,0 +1,11 @@
+# Only the sources go into the build context.
+.git/
+.github/
+.direnv/
+data/
+**/bin/
+**/obj/
+backend/Depot.Tests/
+**/*.db
+**/*.db-shm
+**/*.db-wal
