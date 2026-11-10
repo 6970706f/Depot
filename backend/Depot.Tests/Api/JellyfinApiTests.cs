@@ -27,6 +27,9 @@ public sealed class JellyfinApiTests : IDisposable
     [InlineData("GET", "/api/jellyfin/items")]
     [InlineData("GET", "/api/jellyfin/items/1")]
     [InlineData("GET", "/api/jellyfin/items/1/images/primary")]
+    [InlineData("GET", "/api/jellyfin/items/1/people/0/image")]
+    [InlineData("GET", "/api/jellyfin/filters")]
+    [InlineData("GET", "/api/jellyfin/stats")]
     [InlineData("POST", "/api/jellyfin/sync")]
     [InlineData("GET", "/api/jellyfin/sync")]
     [InlineData("GET", "/api/jellyfin/sync/runs")]
@@ -226,12 +229,37 @@ public sealed class JellyfinApiTests : IDisposable
         Assert.Equal(1, factory.Jellyfin.ImageRequests);
     }
 
+    [Fact]
+    public async Task TheLibraryPagesGetTheirFiltersAndTotals()
+    {
+        var client = await ConfiguredClientAsync();
+        factory.Jellyfin.AddLibrary(Id(1), "Movies", MediaLibraryKind.Movies);
+        factory.Jellyfin.AddItem(Id(1), Movie(3, "Dune") with { Genres = ["Science Fiction"], ProductionYear = 2021 });
+        factory.Jellyfin.AddItem(Id(1), Movie(4, "Spirited Away") with { Genres = ["Animation"], ProductionYear = 2001, ProductionLocations = ["Japan"] });
+        await client.PostAsync("/api/jellyfin/sync", null);
+        await WaitForSyncAsync(client);
+
+        var filters = await client.GetFromJsonAsync<JsonElement>("/api/jellyfin/filters?kind=movie");
+        var stats = await client.GetFromJsonAsync<JsonElement>("/api/jellyfin/stats");
+        var anime = await client.GetFromJsonAsync<JsonElement>("/api/jellyfin/items?anime=true&sort=release");
+        var genre = await client.GetFromJsonAsync<JsonElement>("/api/jellyfin/items?genre=Science%20Fiction&year=2021");
+
+        Assert.Equal(2, filters.GetProperty("genres").GetArrayLength());
+        Assert.Equal(2021, filters.GetProperty("years")[0].GetProperty("value").GetInt32());
+        Assert.Equal((2, 1), (stats.GetProperty("movies").GetInt32(), stats.GetProperty("animeMovies").GetInt32()));
+        Assert.Equal("Spirited Away", anime.GetProperty("items")[0].GetProperty("name").GetString());
+        Assert.True(anime.GetProperty("items")[0].GetProperty("isAnime").GetBoolean());
+        Assert.Equal("Dune", genre.GetProperty("items")[0].GetProperty("name").GetString());
+    }
+
     [Theory]
     [InlineData("/api/jellyfin/items?kind=folder", "kind")]
     [InlineData("/api/jellyfin/items?sort=random", "sort")]
     [InlineData("/api/jellyfin/items?page=0", "page")]
     [InlineData("/api/jellyfin/items?pageSize=1000", "pageSize")]
     [InlineData("/api/jellyfin/items/1/images/primary?width=0", "width")]
+    [InlineData("/api/jellyfin/items?year=99", "year")]
+    [InlineData("/api/jellyfin/filters?kind=folder", "kind")]
     public async Task QueriesAreValidatedByField(string path, string field)
     {
         using var response = await factory.CreateAuthorizedClient().GetAsync(path);

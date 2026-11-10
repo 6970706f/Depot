@@ -25,11 +25,17 @@
   <script defer src="js/components/download-table.js"></script>
   <script defer src="js/components/add-dialog.js"></script>
   <script defer src="js/components/organization-settings.js"></script>
+  <script defer src="js/components/library-sync.js"></script>
   <script defer src="js/components/jellyfin-settings.js"></script>
+  <script defer src="js/components/media-images.js"></script>
+  <script defer src="js/components/media-card.js"></script>
   <script defer src="js/components/command-palette.js"></script>
   <script defer src="js/pages/overview.js"></script>
   <script defer src="js/pages/downloads.js"></script>
-  <script defer src="js/pages/library.js"></script>
+  <script defer src="js/pages/imports.js"></script>
+  <script defer src="js/pages/library-browse.js"></script>
+  <script defer src="js/pages/library-overview.js"></script>
+  <script defer src="js/pages/library-item.js"></script>
   <script defer src="js/pages/settings.js"></script>
   <script defer src="js/app.js"></script>
 </head>
@@ -56,6 +62,12 @@
     <symbol id="i-arrow-down" viewBox="0 0 24 24"><path d="M12 5v14M6.5 13.5L12 19l5.5-5.5"/></symbol>
     <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 5h6l2 3h10v11H3z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6zM14 3v4h4"/></symbol>
+    <symbol id="i-library" viewBox="0 0 24 24"><path d="M4 4h5v16H4zM11 4h5v16h-5zM18 5l2.5.6-1.2 14.6-2.3-.4"/></symbol>
+    <symbol id="i-media" viewBox="0 0 24 24"><path d="M4 5h16v14H4zM10 9v6l5-3z"/></symbol>
+    <symbol id="i-film" viewBox="0 0 24 24"><path d="M4 4h16v16H4zM8 4v16M16 4v16M4 9h4M4 15h4M16 9h4M16 15h4"/></symbol>
+    <symbol id="i-tv" viewBox="0 0 24 24"><path d="M3 7h18v12H3zM8 3l4 4 4-4"/></symbol>
+    <symbol id="i-anime" viewBox="0 0 24 24"><path d="M12 3l2 7 7 2-7 2-2 7-2-7-7-2 7-2z"/></symbol>
+    <symbol id="i-stack" viewBox="0 0 24 24"><path d="M4 9h16v11H4zM6 6h12M8 3h8"/></symbol>
   </svg>
 
   <div class="app">
@@ -76,11 +88,42 @@
             <span class="rail-hidden">Downloads</span>
             <span class="nav-count rail-hidden" id="nav-download-count"></span>
           </a></li>
-          <li><a class="nav-link" href="#/library" data-route="library" title="Library">
+          <li><a class="nav-link" href="#/imports" data-route="imports" title="Imports">
             <svg class="icon" aria-hidden="true"><use href="#i-folder"/></svg>
-            <span class="rail-hidden">Library</span>
-            <span class="nav-count rail-hidden" id="nav-library-count" title="Failed imports"></span>
+            <span class="rail-hidden">Imports</span>
+            <span class="nav-count rail-hidden" id="nav-imports-count" title="Imports that failed or wait for review"></span>
           </a></li>
+        </ul>
+
+        <p class="nav-heading rail-hidden" id="nav-library-heading">Library</p>
+        <ul class="nav-list nav-group" aria-labelledby="nav-library-heading">
+          <li><a class="nav-link" href="#/library" data-route="library" title="Library overview">
+            <svg class="icon" aria-hidden="true"><use href="#i-library"/></svg>
+            <span class="rail-hidden">Overview</span>
+          </a></li>
+          <li><a class="nav-link" href="#/library/all" data-route="library/all" title="All media">
+            <svg class="icon" aria-hidden="true"><use href="#i-media"/></svg>
+            <span class="rail-hidden">All media</span>
+          </a></li>
+          <li><a class="nav-link" href="#/library/movies" data-route="library/movies" title="Movies">
+            <svg class="icon" aria-hidden="true"><use href="#i-film"/></svg>
+            <span class="rail-hidden">Movies</span>
+          </a></li>
+          <li><a class="nav-link" href="#/library/series" data-route="library/series" title="Series">
+            <svg class="icon" aria-hidden="true"><use href="#i-tv"/></svg>
+            <span class="rail-hidden">Series</span>
+          </a></li>
+          <li><a class="nav-link" href="#/library/anime" data-route="library/anime" title="Anime">
+            <svg class="icon" aria-hidden="true"><use href="#i-anime"/></svg>
+            <span class="rail-hidden">Anime</span>
+          </a></li>
+          <li><a class="nav-link" href="#/library/collections" data-route="library/collections" title="Collections">
+            <svg class="icon" aria-hidden="true"><use href="#i-stack"/></svg>
+            <span class="rail-hidden">Collections</span>
+          </a></li>
+        </ul>
+
+        <ul class="nav-list nav-group">
           <li><a class="nav-link" href="#/settings" data-route="settings" title="Settings">
             <svg class="icon" aria-hidden="true"><use href="#i-settings"/></svg>
             <span class="rail-hidden">Settings</span>

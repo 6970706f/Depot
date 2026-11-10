@@ -31,6 +31,16 @@ public interface IMediaCatalogRepository
     Task<CatalogItem?> GetItemAsync(int id, bool includeFiles, CancellationToken cancellationToken);
 
     Task<CatalogItem?> FindByExternalIdAsync(string externalId, CancellationToken cancellationToken);
+
+    Task<IReadOnlyList<CatalogItem>> FindByExternalIdsAsync(IReadOnlyCollection<string> externalIds, CancellationToken cancellationToken);
+
+    // The collections an item is in.
+    Task<IReadOnlyList<CatalogItem>> ListCollectionsContainingAsync(string externalId, CancellationToken cancellationToken);
+
+    // The genres and years of the items a filter would choose from, with how many items have each.
+    Task<CatalogFacets> GetFacetsAsync(IReadOnlyCollection<MediaItemKind> kinds, bool? anime, CancellationToken cancellationToken);
+
+    Task<CatalogStats> GetStatsAsync(CancellationToken cancellationToken);
 }
 
 public sealed record SavedLibraries(IReadOnlyDictionary<string, int> IdsByExternalId, int RemovedItems);
@@ -40,9 +50,23 @@ public sealed record SavedItems(int Added, int Updated);
 // LastSyncedAt is the end of the last sync that read the whole library.
 public sealed record CatalogLibrary(int Id, MediaLibrary Library, IReadOnlyDictionary<MediaItemKind, int> Counts, DateTimeOffset? LastSyncedAt);
 
-// An item as kept locally. FileCount is set even when the files themselves weren't read.
-// UpdatedAt is when its metadata last changed.
-public sealed record CatalogItem(int Id, int LibraryId, MediaItem Item, int FileCount, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+// An item as kept locally. FileCount is set even when the files themselves weren't read;
+// EpisodeCount is the episodes kept for a series or season. UpdatedAt is when its metadata last changed.
+public sealed record CatalogItem(int Id, int LibraryId, MediaItem Item, int FileCount, int EpisodeCount, DateTimeOffset CreatedAt, DateTimeOffset UpdatedAt);
+
+public sealed record CatalogCount<T>(T Value, int Count);
+
+// Most common first.
+public sealed record CatalogFacets(IReadOnlyList<CatalogCount<string>> Genres, IReadOnlyList<CatalogCount<int>> Years);
+
+// AnimeMovies and AnimeSeries are also counted in Counts. LastSyncedAt is the latest library read completely.
+public sealed record CatalogStats(
+    IReadOnlyDictionary<MediaItemKind, int> Counts,
+    int AnimeMovies,
+    int AnimeSeries,
+    int Files,
+    long SizeBytes,
+    DateTimeOffset? LastSyncedAt);
 
 public enum CatalogSort
 {
@@ -50,19 +74,26 @@ public enum CatalogSort
     Name,
     // Newest in the library first.
     Added,
-    // Newest release first.
+    // Newest release year first.
     Year,
+    // Newest premiere date first.
+    Release,
     // Season, then episode number.
     Number,
 }
 
-// Every filter is optional. Search matches the name or original title.
+// Every filter is optional. Search matches the name or original title; Genre one genre exactly;
+// ExternalIds limits the items to these, such as a collection's members.
 public sealed record CatalogQuery(
     IReadOnlyCollection<MediaItemKind> Kinds,
     int? LibraryId = null,
     string? SeriesExternalId = null,
     string? SeasonExternalId = null,
     string? Search = null,
+    string? Genre = null,
+    int? Year = null,
+    bool? Anime = null,
+    IReadOnlyCollection<string>? ExternalIds = null,
     CatalogSort Sort = CatalogSort.Name,
     int Skip = 0,
     int Take = 50);

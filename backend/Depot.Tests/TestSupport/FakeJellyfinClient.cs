@@ -24,6 +24,9 @@ public sealed class FakeJellyfinClient : IJellyfinClient
     // Called before each page of items is answered; can throw or change the items.
     public Action<string, int>? BeforePage { get; set; }
 
+    // Member ids by collection id.
+    public ConcurrentDictionary<string, IReadOnlyList<string>> CollectionMembers { get; } = [];
+
     public JellyfinException? LibrariesFailure { get; set; }
 
     public JellyfinException? LookupFailure { get; set; }
@@ -125,6 +128,12 @@ public sealed class FakeJellyfinClient : IJellyfinClient
             return Task.FromResult<IReadOnlyList<MediaItem>>(
                 Items.Values.SelectMany(items => items).Where(item => itemIds.Contains(item.ExternalId)).ToList());
         }
+    }
+
+    public Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(string collectionId, CancellationToken cancellationToken)
+    {
+        Requests.Enqueue($"members {collectionId}");
+        return Task.FromResult(CollectionMembers.TryGetValue(collectionId, out var members) ? members : (IReadOnlyList<string>)[]);
     }
 
     public Task<MediaImageContent?> GetImageAsync(

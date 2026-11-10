@@ -267,13 +267,13 @@
     }
   }
 
-  const libraryPage = {
-    title: 'Library',
+  const importsPage = {
+    title: 'Imports',
 
     mount(root, { signal }) {
       let jobs = null;
       let status = null;
-      const panel = createPanel('Library');
+      const panel = createPanel('Imports');
       const counts = Object.fromEntries(FILTERS.map(({ value }) => [value, h('span', { class: 'segment-count' })]));
       const workerText = h('p', { class: 'library-status', role: 'status' });
 
@@ -351,5 +351,5 @@
     },
   };
 
-  Object.assign(MediaFlow, { libraryPage });
+  Object.assign(MediaFlow, { importsPage });
 })();

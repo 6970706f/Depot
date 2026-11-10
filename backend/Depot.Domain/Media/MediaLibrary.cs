@@ -6,6 +6,8 @@ public enum MediaLibraryKind
     Shows,
     // Movies and shows together.
     Mixed,
+    // Jellyfin's collections (box sets).
+    Collections,
     // Music, books, photos and the like: listed, but their items aren't kept.
     Other,
 }
@@ -21,6 +23,7 @@ public sealed record MediaLibrary(string ExternalId, string Name, MediaLibraryKi
         MediaLibraryKind.Movies => [MediaItemKind.Movie],
         MediaLibraryKind.Shows => [MediaItemKind.Series, MediaItemKind.Season, MediaItemKind.Episode],
         MediaLibraryKind.Mixed => [MediaItemKind.Movie, MediaItemKind.Series, MediaItemKind.Season, MediaItemKind.Episode],
+        MediaLibraryKind.Collections => [MediaItemKind.Collection],
         _ => [],
     };
 }

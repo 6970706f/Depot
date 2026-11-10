@@ -1,22 +1,14 @@
 (() => {
   'use strict';
 
-  const { createPanel, getJellyfinItems, getJellyfinLibraries, getJellyfinSettings, getJellyfinSync, h, icon, loadJellyfinImage, plural, saveJellyfinSettings, setIcon, setText, settingsSection, startJellyfinSync, testJellyfinConnection, textField, toast } = MediaFlow;
+  const { createPanel, describeSyncRun, getJellyfinItems, getJellyfinLibraries, getJellyfinSettings, getJellyfinSync, h, icon, loadJellyfinImage, plural, saveJellyfinSettings, setIcon, setText, settingsSection, startJellyfinSync, testJellyfinConnection, textField, toast } = MediaFlow;
 
   const URL_HINT = 'The Jellyfin address as Depot\'s server reaches it, such as http://localhost:8096.';
   const KEY_SAVED = 'A key is saved on the server. Leave blank to keep it.';
   const KEY_MISSING = 'Create one in Jellyfin under Dashboard > API Keys.';
   const RECENT_COUNT = 8;
 
-  const RUN_STATES = {
-    running: 'Running',
-    succeeded: 'Finished',
-    completedWithErrors: 'Finished with errors',
-    failed: 'Failed',
-    interrupted: 'Interrupted',
-  };
-
-  const LIBRARY_KINDS = { movies: 'Movies', shows: 'Shows', mixed: 'Movies and shows', other: 'Not synced' };
+  const LIBRARY_KINDS = { movies: 'Movies', shows: 'Shows', mixed: 'Movies and shows', collections: 'Collections', other: 'Not synced' };
 
   function isHttpUrl(text) {
     try {
@@ -136,19 +128,6 @@
     );
   }
 
-  function runSummary(run) {
-    if (run.status === 'running') {
-      const where = run.currentLibrary ? `Reading ${run.currentLibrary}` : run.message;
-      const libraries = run.librariesTotal ? ` · ${run.librariesCompleted + run.librariesFailed} of ${plural(run.librariesTotal, 'library', 'libraries')}` : '';
-      return `${where}${libraries} · ${plural(run.itemsSeen, 'item')} so far`;
-    }
-    const counts = [
-      `${run.itemsAdded} added`, `${run.itemsUpdated} updated`, `${run.itemsRemoved} removed`, `${run.itemsUnchanged} unchanged`,
-    ];
-    if (run.itemsSkipped) counts.push(`${run.itemsSkipped} unreadable`);
-    return `${formatTime(run.finishedAt)} · ${counts.join(', ')}`;
-  }
-
   function libraryLine(library) {
     const counts = library.kind === 'other'
       ? 'Not synced: only movies and shows are kept'
@@ -219,10 +198,10 @@
         errors.replaceChildren();
         return;
       }
-      const failed = run.status === 'failed' || run.status === 'interrupted' || run.status === 'completedWithErrors';
-      status.dataset.state = failed ? 'down' : 'ok';
-      setText(state, `${RUN_STATES[run.status] ?? run.status}${run.status === 'running' ? '…' : ''}`);
-      setText(summary, runSummary(run));
+      const { state: runState, label, detail, failed } = describeSyncRun(run);
+      status.dataset.state = runState;
+      setText(state, `${label}${run.status === 'running' ? '…' : ''}`);
+      setText(summary, detail);
       message.hidden = !(failed && run.message);
       setText(message, run.message ?? '');
       const errorKey = JSON.stringify(run.errors);

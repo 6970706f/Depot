@@ -9,7 +9,13 @@
     { title: 'Add download', kind: 'Action', icon: 'plus', run: openAddDialog },
     { title: 'Overview', kind: 'Page', icon: 'overview', run: () => go('overview') },
     { title: 'Downloads', kind: 'Page', icon: 'downloads', run: () => go('downloads') },
-    { title: 'Library', kind: 'Page', icon: 'folder', run: () => go('library') },
+    { title: 'Imports', kind: 'Page', icon: 'folder', run: () => go('imports') },
+    { title: 'Library', kind: 'Page', icon: 'library', run: () => go('library') },
+    { title: 'All media', kind: 'Library', icon: 'media', run: () => go('library/all') },
+    { title: 'Movies', kind: 'Library', icon: 'film', run: () => go('library/movies') },
+    { title: 'Series', kind: 'Library', icon: 'tv', run: () => go('library/series') },
+    { title: 'Anime', kind: 'Library', icon: 'anime', run: () => go('library/anime') },
+    { title: 'Collections', kind: 'Library', icon: 'stack', run: () => go('library/collections') },
     { title: 'Settings', kind: 'Page', icon: 'settings', run: () => go('settings') },
   ];
 

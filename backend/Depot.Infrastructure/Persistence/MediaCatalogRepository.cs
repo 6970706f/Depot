@@ -86,6 +86,10 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
                     Studios = "[]",
                     ProviderIds = "{}",
                     BackdropImageTags = "[]",
+                    People = "[]",
+                    Tags = "[]",
+                    ProductionLocations = "[]",
+                    MemberIds = "[]",
                     CreatedAt = now,
                     UpdatedAt = now,
                 };
@@ -182,10 +186,32 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
 
         if (!string.IsNullOrEmpty(query.Search))
         {
-            // LIKE with the wildcards in the search taken literally.
-            var pattern = $"%{query.Search.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_")}%";
+            var pattern = $"%{EscapeLike(query.Search)}%";
             items = items.Where(item => EF.Functions.Like(item.Name, pattern, "\\")
                 || (item.OriginalTitle != null && EF.Functions.Like(item.OriginalTitle, pattern, "\\")));
+        }
+
+        if (!string.IsNullOrEmpty(query.Genre))
+        {
+            // The genres are a JSON list: the genre as a JSON string, quotes included, is an exact match.
+            var pattern = $"%{EscapeLike(Serialize(query.Genre))}%";
+            items = items.Where(item => EF.Functions.Like(item.Genres, pattern, "\\"));
+        }
+
+        if (query.Year is { } year)
+        {
+            items = items.Where(item => item.ProductionYear == year);
+        }
+
+        if (query.Anime is { } anime)
+        {
+            items = items.Where(item => item.IsAnime == anime);
+        }
+
+        if (query.ExternalIds is { } externalIds)
+        {
+            var ids = externalIds.ToList();
+            items = items.Where(item => ids.Contains(item.ExternalId));
         }
 
         var total = await items.CountAsync(cancellationToken);
@@ -193,17 +219,13 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
         {
             CatalogSort.Added => items.OrderByDescending(item => item.AddedAt).ThenBy(item => item.SortName),
             CatalogSort.Year => items.OrderByDescending(item => item.ProductionYear).ThenBy(item => item.SortName),
+            CatalogSort.Release => items.OrderByDescending(item => item.PremiereDate).ThenByDescending(item => item.ProductionYear).ThenBy(item => item.SortName),
             CatalogSort.Number => items.OrderBy(item => item.ParentIndexNumber).ThenBy(item => item.IndexNumber).ThenBy(item => item.SortName),
             _ => items.OrderBy(item => item.SortName),
         };
 
-        var page = await sorted
-            .ThenBy(item => item.Id)
-            .Skip(query.Skip)
-            .Take(query.Take)
-            .Select(item => new { Item = item, FileCount = item.Files.Count })
-            .ToListAsync(cancellationToken);
-        return new CatalogPage(page.Select(entry => ToCatalogItem(entry.Item, entry.FileCount)).ToList(), total);
+        var page = await WithCounts(sorted.ThenBy(item => item.Id).Skip(query.Skip).Take(query.Take)).ToListAsync(cancellationToken);
+        return new CatalogPage(page.Select(ToCatalogItem).ToList(), total);
     }
 
     public async Task<CatalogItem?> GetItemAsync(int id, bool includeFiles, CancellationToken cancellationToken)
@@ -211,23 +233,100 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
         var items = dbContext.MediaItems.AsNoTracking().Where(item => item.Id == id);
         if (includeFiles)
         {
-            var record = await items.Include(item => item.Files.OrderBy(file => file.Position)).SingleOrDefaultAsync(cancellationToken);
-            return record is null ? null : ToCatalogItem(record, record.Files.Count);
+            items = items.Include(item => item.Files.OrderBy(file => file.Position));
         }
 
-        var entry = await items.Select(item => new { Item = item, FileCount = item.Files.Count }).SingleOrDefaultAsync(cancellationToken);
-        return entry is null ? null : ToCatalogItem(entry.Item, entry.FileCount);
+        var entry = await WithCounts(items).SingleOrDefaultAsync(cancellationToken);
+        return entry is null ? null : ToCatalogItem(entry);
     }
 
-    public async Task<CatalogItem?> FindByExternalIdAsync(string externalId, CancellationToken cancellationToken)
+    public async Task<CatalogItem?> FindByExternalIdAsync(string externalId, CancellationToken cancellationToken) =>
+        (await FindByExternalIdsAsync([externalId], cancellationToken)).SingleOrDefault();
+
+    public async Task<IReadOnlyList<CatalogItem>> FindByExternalIdsAsync(IReadOnlyCollection<string> externalIds, CancellationToken cancellationToken)
     {
-        var entry = await dbContext.MediaItems
-            .AsNoTracking()
-            .Where(item => item.ExternalId == externalId)
-            .Select(item => new { Item = item, FileCount = item.Files.Count })
-            .SingleOrDefaultAsync(cancellationToken);
-        return entry is null ? null : ToCatalogItem(entry.Item, entry.FileCount);
+        var ids = externalIds.ToList();
+        var entries = await WithCounts(dbContext.MediaItems.AsNoTracking().Where(item => ids.Contains(item.ExternalId))).ToListAsync(cancellationToken);
+        return entries.Select(ToCatalogItem).ToList();
     }
+
+    public async Task<IReadOnlyList<CatalogItem>> ListCollectionsContainingAsync(string externalId, CancellationToken cancellationToken)
+    {
+        var pattern = $"%{EscapeLike(Serialize(externalId))}%";
+        var entries = await WithCounts(dbContext.MediaItems
+                .AsNoTracking()
+                .Where(item => item.Kind == MediaItemKind.Collection && EF.Functions.Like(item.MemberIds, pattern, "\\"))
+                .OrderBy(item => item.SortName))
+            .ToListAsync(cancellationToken);
+        return entries.Select(ToCatalogItem).ToList();
+    }
+
+    // Counted in memory from the genre lists and years alone: a few kilobytes even for a large
+    // library, and SQLite has no way to group by the elements of a JSON list through EF.
+    public async Task<CatalogFacets> GetFacetsAsync(IReadOnlyCollection<MediaItemKind> kinds, bool? anime, CancellationToken cancellationToken)
+    {
+        var kindList = kinds.ToList();
+        var items = dbContext.MediaItems.AsNoTracking().Where(item => kindList.Contains(item.Kind));
+        if (anime is { } wanted)
+        {
+            items = items.Where(item => item.IsAnime == wanted);
+        }
+
+        var rows = await items.Select(item => new { item.Genres, item.ProductionYear }).ToListAsync(cancellationToken);
+        var genres = rows
+            .SelectMany(row => Deserialize<List<string>>(row.Genres) ?? [])
+            .GroupBy(genre => genre, StringComparer.OrdinalIgnoreCase)
+            .Select(group => new CatalogCount<string>(group.First(), group.Count()))
+            .OrderByDescending(count => count.Count)
+            .ThenBy(count => count.Value, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var years = rows
+            .Where(row => row.ProductionYear is not null)
+            .GroupBy(row => row.ProductionYear!.Value)
+            .Select(group => new CatalogCount<int>(group.Key, group.Count()))
+            .OrderByDescending(count => count.Value)
+            .ToList();
+        return new CatalogFacets(genres, years);
+    }
+
+    public async Task<CatalogStats> GetStatsAsync(CancellationToken cancellationToken)
+    {
+        var counts = await dbContext.MediaItems
+            .AsNoTracking()
+            .GroupBy(item => new { item.Kind, item.IsAnime })
+            .Select(group => new { group.Key.Kind, group.Key.IsAnime, Count = group.Count() })
+            .ToListAsync(cancellationToken);
+        var files = await dbContext.MediaFiles
+            .AsNoTracking()
+            .GroupBy(_ => 1)
+            .Select(group => new { Count = group.Count(), Size = group.Sum(file => file.SizeBytes ?? 0) })
+            .SingleOrDefaultAsync(cancellationToken);
+        var synced = await dbContext.MediaLibraries.AsNoTracking().Select(library => library.LastSyncedAt).ToListAsync(cancellationToken);
+
+        return new CatalogStats(
+            counts.GroupBy(count => count.Kind).ToDictionary(group => group.Key, group => group.Sum(count => count.Count)),
+            counts.Where(count => count.Kind == MediaItemKind.Movie && count.IsAnime).Sum(count => count.Count),
+            counts.Where(count => count.Kind == MediaItemKind.Series && count.IsAnime).Sum(count => count.Count),
+            files?.Count ?? 0,
+            files?.Size ?? 0,
+            synced.Max());
+    }
+
+    // The item with its number of files and, for a series or season, of episodes.
+    private IQueryable<Counted> WithCounts(IQueryable<MediaItemRecord> items) =>
+        items.Select(item => new Counted
+        {
+            Item = item,
+            FileCount = item.Files.Count,
+            EpisodeCount = item.Kind == MediaItemKind.Series
+                ? dbContext.MediaItems.Count(episode => episode.Kind == MediaItemKind.Episode && episode.SeriesExternalId == item.ExternalId)
+                : item.Kind == MediaItemKind.Season
+                    ? dbContext.MediaItems.Count(episode => episode.Kind == MediaItemKind.Episode && episode.SeasonExternalId == item.ExternalId)
+                    : 0,
+        });
+
+    // LIKE with the wildcards in the text taken literally.
+    private static string EscapeLike(string text) => text.Replace("\\", "\\\\").Replace("%", "\\%").Replace("_", "\\_");
 
     private static void Apply(MediaItemRecord record, MediaItem item, int libraryId)
     {
@@ -259,6 +358,11 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
         record.ThumbImageTag = item.Images.Thumb;
         record.LogoImageTag = item.Images.Logo;
         record.BackdropImageTags = Serialize(item.Images.Backdrops);
+        record.People = Serialize(item.People);
+        record.Tags = Serialize(item.Tags);
+        record.ProductionLocations = Serialize(item.ProductionLocations);
+        record.MemberIds = Serialize(item.MemberExternalIds);
+        record.IsAnime = item.IsAnime;
     }
 
     // Matches files by their external id: new ones are added, gone ones deleted, the rest
@@ -306,7 +410,9 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
         return changed;
     }
 
-    private static CatalogItem ToCatalogItem(MediaItemRecord record, int fileCount) => new(
+    private static CatalogItem ToCatalogItem(Counted counted) => ToCatalogItem(counted.Item, counted.FileCount, counted.EpisodeCount);
+
+    private static CatalogItem ToCatalogItem(MediaItemRecord record, int fileCount, int episodeCount) => new(
         record.Id,
         record.LibraryId,
         new MediaItem
@@ -336,6 +442,11 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
             AddedAt = record.AddedAt,
             Images = new MediaImageTags(
                 record.PrimaryImageTag, record.ThumbImageTag, record.LogoImageTag, Deserialize<List<string>>(record.BackdropImageTags) ?? []),
+            People = Deserialize<List<MediaPerson>>(record.People) ?? [],
+            Tags = Deserialize<List<string>>(record.Tags) ?? [],
+            ProductionLocations = Deserialize<List<string>>(record.ProductionLocations) ?? [],
+            MemberExternalIds = Deserialize<List<string>>(record.MemberIds) ?? [],
+            IsAnime = record.IsAnime,
             Files = record.Files
                 .OrderBy(file => file.Position)
                 .Select(file => new MediaFile
@@ -352,6 +463,7 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
                 .ToList(),
         },
         fileCount,
+        episodeCount,
         record.CreatedAt,
         record.UpdatedAt);
 
@@ -361,4 +473,13 @@ public sealed class MediaCatalogRepository(DepotDbContext dbContext) : IMediaCat
     private static string Serialize<T>(T value) => JsonSerializer.Serialize(value, JsonOptions);
 
     private static T? Deserialize<T>(string json) => JsonSerializer.Deserialize<T>(json, JsonOptions);
+
+    private sealed class Counted
+    {
+        public required MediaItemRecord Item { get; init; }
+
+        public int FileCount { get; init; }
+
+        public int EpisodeCount { get; init; }
+    }
 }

@@ -6,6 +6,8 @@ public enum MediaItemKind
     Series,
     Season,
     Episode,
+    // A collection (box set) grouping movies or series, such as a film saga.
+    Collection,
 }
 
 public enum ImageKind
@@ -100,4 +102,19 @@ public sealed record MediaItem
     // Movies and episodes can have several files (versions such as 1080p and 720p); series and
     // seasons have none.
     public IReadOnlyList<MediaFile> Files { get; init; } = [];
+
+    // Directors, writers and cast, in the source's order.
+    public IReadOnlyList<MediaPerson> People { get; init; } = [];
+
+    // Keywords, such as "space opera" or "anime".
+    public IReadOnlyList<string> Tags { get; init; } = [];
+
+    // Countries of production, such as "Japan".
+    public IReadOnlyList<string> ProductionLocations { get; init; } = [];
+
+    // For a collection, the external ids of the movies and series in it, in the source's order.
+    public IReadOnlyList<string> MemberExternalIds { get; init; } = [];
+
+    // Set by the sync from MediaCategories.IsAnime: the source has no such type.
+    public bool IsAnime { get; init; }
 }

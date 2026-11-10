@@ -22,6 +22,9 @@ public interface IJellyfinClient
     // The items among these ids that the server still has; the others are left out.
     Task<IReadOnlyList<MediaItem>> GetItemsByIdAsync(IReadOnlyCollection<string> itemIds, CancellationToken cancellationToken);
 
+    // The ids of the movies and series in a collection, in the server's order.
+    Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(string collectionId, CancellationToken cancellationToken);
+
     // Null when the server has no such image. maxWidth null asks for the original size.
     Task<MediaImageContent?> GetImageAsync(
         string itemId,

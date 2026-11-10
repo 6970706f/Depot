@@ -96,6 +96,18 @@ public sealed class MediaItemRecord
 
     public required string BackdropImageTags { get; set; }
 
+    // Directors, writers and cast, as JSON.
+    public required string People { get; set; }
+
+    public required string Tags { get; set; }
+
+    public required string ProductionLocations { get; set; }
+
+    // A collection's members, by external id.
+    public required string MemberIds { get; set; }
+
+    public bool IsAnime { get; set; }
+
     public DateTimeOffset CreatedAt { get; set; }
 
     // When the metadata last changed, not when it was last seen.

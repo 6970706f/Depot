@@ -12,7 +12,10 @@ public sealed class JellyfinClient(JellyfinHttp http, IJellyfinSettingsRepositor
     public const int MaxPageSize = 500;
 
     // Everything Depot keeps of an item. MediaSources carries each file with its streams.
-    private const string ItemFields = "ProviderIds,Overview,Genres,Studios,DateCreated,Path,MediaSources,OriginalTitle,SortName";
+    private const string ItemFields = "ProviderIds,Overview,Genres,Studios,DateCreated,Path,MediaSources,OriginalTitle,SortName,People,Tags,ProductionLocations";
+
+    // A collection with more members than this is cut short.
+    private const int MaxCollectionItems = 5000;
     private const string ImageTypes = "Primary,Backdrop,Thumb,Logo";
 
     public async Task<JellyfinServerInfo> GetServerInfoAsync(CancellationToken cancellationToken)
@@ -86,6 +89,37 @@ public sealed class JellyfinClient(JellyfinHttp http, IJellyfinSettingsRepositor
         return JellyfinResponses.ReadItemPage(document.RootElement, settings).Items
             .Where(item => requested.Contains(item.ExternalId))
             .ToList();
+    }
+
+    // A collection's members are its children, which an API key only gets with Recursive=true.
+    public async Task<IReadOnlyList<string>> GetCollectionItemIdsAsync(string collectionId, CancellationToken cancellationToken)
+    {
+        var parentId = JellyfinResponses.NormalizeId(collectionId) ?? throw new ArgumentException("Not a Jellyfin id.", nameof(collectionId));
+        var settings = await SettingsAsync(cancellationToken);
+        var ids = new List<string>();
+        var start = 0;
+        while (start < MaxCollectionItems)
+        {
+            var query = string.Join('&',
+                $"ParentId={parentId}",
+                "Recursive=true",
+                "IncludeItemTypes=Movie,Series",
+                "EnableImages=false",
+                "EnableUserData=false",
+                "EnableTotalRecordCount=true",
+                $"StartIndex={start}",
+                $"Limit={MaxPageSize}");
+            using var document = await http.GetJsonAsync(settings, $"Items?{query}", authenticated: true, cancellationToken);
+            var page = JellyfinResponses.ReadItemPage(document.RootElement, settings);
+            ids.AddRange(page.Items.Select(item => item.ExternalId).Where(id => !ids.Contains(id)));
+            start += page.Received;
+            if (page.Received == 0 || start >= page.TotalCount)
+            {
+                break;
+            }
+        }
+
+        return ids;
     }
 
     public async Task<MediaImageContent?> GetImageAsync(

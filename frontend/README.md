@@ -17,6 +17,8 @@ Theme and interface preferences persist in `localStorage`. If the API isn't runn
 | --- | --- |
 | Overview | Active and completed counts, total speeds, active downloads and the qBittorrent connection |
 | Downloads | Every torrent, with search, status filters, sorting and the pause, resume, retry and remove actions |
+| Imports | One job per video of a finished download: where it goes, its state, and retry, skip, review and correct |
+| Library | The Jellyfin library: an overview, poster grids for all media, movies, series, anime and collections with search, filters and sorting, and a page per title with its details, cast, seasons, episodes and files |
 | Settings | The qBittorrent connection, the media library folders and the Jellyfin connection with its library sync (saved on the server), theme and interface preferences |
 
 Pages refresh every 2 seconds by default (1, 2 or 5 in Settings).
@@ -50,7 +52,7 @@ frontend/
     ├── prefs.js            Interface preferences
     ├── format.js           Bytes, speeds, ETAs
     ├── dom.js              Element helper and keyed list rendering
-    ├── components/         Tables, dialogs, palette, toasts, form fields, states, service status
+    ├── components/         Tables, dialogs, palette, toasts, form fields, states, service status, library cards, images and sync bar
     └── pages/              One module per page
 ```
 

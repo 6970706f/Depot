@@ -397,8 +397,9 @@
     return shared('jellyfin-libraries', () => request('/api/jellyfin/libraries'));
   }
 
-  // GET /api/jellyfin/items: { items, total, page, pageSize }. Filters: kind (movie, series,
-  // season, episode), libraryId, search, sort (name, added, year), page, pageSize.
+  // GET /api/jellyfin/items: { items, total, page, pageSize }. Filters: kind (movie, series, season,
+  // episode, collection), libraryId, search, genre, year, anime, collectionId, sort (name, added,
+  // year, release), page, pageSize.
   function getJellyfinItems(query = {}) {
     const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== null && value !== undefined && value !== ''));
     const path = `/api/jellyfin/items${params.size ? `?${params}` : ''}`;
@@ -433,9 +434,22 @@
     const params = new URLSearchParams({ v: version });
     if (width) params.set('width', String(width));
     if (index) params.set('index', String(index));
+    return fetchImage(`/api/jellyfin/items/${encodeURIComponent(item.id)}/images/${kind}?${params}`);
+  }
+
+  // Like loadJellyfinImage, for someone in an item's people (from GET /api/jellyfin/items/{id}).
+  async function loadJellyfinPersonImage(itemId, person, { width } = {}) {
+    if (!person.imageVersion) return null;
+    const params = new URLSearchParams({ v: person.imageVersion });
+    if (width) params.set('width', String(width));
+    return fetchImage(`/api/jellyfin/items/${encodeURIComponent(itemId)}/people/${person.index}/image?${params}`);
+  }
+
+  // An image from the API as a blob: URL, or null when there's none (404).
+  async function fetchImage(path) {
     let response;
     try {
-      response = await fetch(`/api/jellyfin/items/${encodeURIComponent(item.id)}/images/${kind}?${params}`, {
+      response = await fetch(path, {
         headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
         signal: AbortSignal.timeout(20000),
       });
@@ -447,5 +461,20 @@
     return URL.createObjectURL(await response.blob());
   }
 
-  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, classifyOrganizationJob, confirmOrganizationDownload, getLibrarySeries, getJellyfinSettings, saveJellyfinSettings, testJellyfinConnection, getJellyfinLibraries, getJellyfinItems, getJellyfinItem, getJellyfinSync, startJellyfinSync, loadJellyfinImage });
+  // GET /api/jellyfin/stats: totals for the library overview.
+  function getJellyfinStats() {
+    return shared('jellyfin-stats', () => request('/api/jellyfin/stats'));
+  }
+
+  // GET /api/jellyfin/filters: { genres: [{ value, count }], years: [{ value, count }] } for the
+  // titles a page lists (kind and anime as in getJellyfinItems).
+  function getJellyfinFilters({ kind, anime } = {}) {
+    const params = new URLSearchParams();
+    if (kind) params.set('kind', kind);
+    if (anime !== undefined && anime !== null) params.set('anime', String(anime));
+    const path = `/api/jellyfin/filters${params.size ? `?${params}` : ''}`;
+    return shared(path, () => request(path));
+  }
+
+  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, classifyOrganizationJob, confirmOrganizationDownload, getLibrarySeries, getJellyfinSettings, saveJellyfinSettings, testJellyfinConnection, getJellyfinLibraries, getJellyfinItems, getJellyfinItem, getJellyfinSync, startJellyfinSync, loadJellyfinImage, loadJellyfinPersonImage, getJellyfinStats, getJellyfinFilters });
 })();

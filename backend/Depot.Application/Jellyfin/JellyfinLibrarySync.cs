@@ -123,7 +123,7 @@ public sealed class JellyfinLibrarySync(
             var page = await client.GetItemsAsync(library.ExternalId, library.ItemKinds, startIndex, PageSize, cancellationToken);
             // When items are added or removed while reading, a page can repeat one from the last.
             var items = page.Items.Where(item => seenHere.Add(item.ExternalId)).ToList();
-            await SaveAsync(run, libraryId, items, seen, page.Skipped, cancellationToken);
+            await SaveAsync(run, libraryId, await CompleteAsync(library, items, cancellationToken), seen, page.Skipped, cancellationToken);
 
             startIndex += page.Received;
             if (page.Received == 0 || startIndex >= page.TotalCount)
@@ -138,7 +138,7 @@ public sealed class JellyfinLibrarySync(
         foreach (var batch in unseen.Chunk(LookupBatchSize))
         {
             var stillThere = await client.GetItemsByIdAsync(batch, cancellationToken);
-            await SaveAsync(run, libraryId, stillThere, seen, skipped: 0, cancellationToken);
+            await SaveAsync(run, libraryId, await CompleteAsync(library, stillThere, cancellationToken), seen, skipped: 0, cancellationToken);
 
             var existing = stillThere.Select(item => item.ExternalId).ToHashSet(StringComparer.Ordinal);
             var gone = batch.Where(id => !existing.Contains(id)).ToList();
@@ -150,6 +150,21 @@ public sealed class JellyfinLibrarySync(
         }
 
         await catalog.MarkLibrarySyncedAsync(libraryId, clock.GetUtcNow(), cancellationToken);
+    }
+
+    // Adds what Depot works out itself: whether an item is anime, and what a collection holds.
+    private async Task<IReadOnlyList<MediaItem>> CompleteAsync(MediaLibrary library, IReadOnlyList<MediaItem> items, CancellationToken cancellationToken)
+    {
+        var completed = new List<MediaItem>(items.Count);
+        foreach (var item in items)
+        {
+            var members = item.Kind == MediaItemKind.Collection
+                ? await client.GetCollectionItemIdsAsync(item.ExternalId, cancellationToken)
+                : item.MemberExternalIds;
+            completed.Add(item with { IsAnime = MediaCategories.IsAnime(item, library), MemberExternalIds = members });
+        }
+
+        return completed;
     }
 
     private async Task SaveAsync(

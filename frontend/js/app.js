@@ -1,12 +1,19 @@
 (() => {
   'use strict';
 
-  const { apiEvents, describeServices, downloadsPage, getHealth, getOrganizationStatus, getPref, getStats, getSystemStatus, h, initNavigation, libraryPage, onPrefChange, openAddDialog, openSignInDialog, overviewPage, setText, settingsPage, toggleCommandPalette } = MediaFlow;
+  const { apiEvents, describeServices, downloadsPage, getHealth, getOrganizationStatus, getPref, getStats, getSystemStatus, h, importsPage, initNavigation, libraryAllPage, libraryAnimePage, libraryCollectionsPage, libraryItemPage, libraryMoviesPage, libraryOverviewPage, librarySeriesPage, onPrefChange, openAddDialog, openSignInDialog, overviewPage, setText, settingsPage, toggleCommandPalette } = MediaFlow;
 
   const PAGES = {
     overview: overviewPage,
     downloads: downloadsPage,
-    library: libraryPage,
+    imports: importsPage,
+    library: libraryOverviewPage,
+    'library/all': libraryAllPage,
+    'library/movies': libraryMoviesPage,
+    'library/series': librarySeriesPage,
+    'library/anime': libraryAnimePage,
+    'library/collections': libraryCollectionsPage,
+    'library/item': libraryItemPage,
     settings: settingsPage,
   };
 
@@ -25,15 +32,18 @@
     const root = h('div', { class: 'page' });
     view.replaceChildren(root);
     view.scrollTop = 0;
-    refreshPage = page.mount(root, { params, signal: pageController.signal });
-
-    pageTitle.textContent = page.title;
-    document.title = `${page.title} - MediaFlow`;
+    const setTitle = (title) => {
+      pageTitle.textContent = title;
+      document.title = `${title} - MediaFlow`;
+    };
+    setTitle(page.title);
+    refreshPage = page.mount(root, { params, signal: pageController.signal, setTitle });
     if (!isFirstRoute) pageTitle.focus();
     isFirstRoute = false;
 
     // Search params seed the page once. Dropping them lets the same search run again later.
-    if (Object.keys(params).length) history.replaceState(null, '', `#/${route}`);
+    // Pages that keep their state in the address (the library's filters, the title shown) keep them.
+    if (Object.keys(params).length && !page.keepParams) history.replaceState(null, '', `#/${route}`);
     refreshNow();
   }
 
@@ -114,7 +124,7 @@
     if (organization.status === 'fulfilled') {
       // Imports that wait for a person: failed, or held for review.
       const waiting = organization.value.counts.failed + (organization.value.counts.needsReview ?? 0);
-      setText(document.getElementById('nav-library-count'), waiting ? String(waiting) : '');
+      setText(document.getElementById('nav-imports-count'), waiting ? String(waiting) : '');
     }
 
     const unauthorized = system.status === 'rejected' && system.reason?.code === 'unauthorized';

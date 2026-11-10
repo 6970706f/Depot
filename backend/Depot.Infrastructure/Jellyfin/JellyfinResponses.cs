@@ -20,6 +20,7 @@ public static partial class JellyfinResponses
     private const int MaxFiles = 50;
     private const int MaxStreams = 100;
     private const int MaxBackdrops = 20;
+    private const int MaxCast = 30;
     private static readonly TimeSpan MaxRuntime = TimeSpan.FromDays(30);
 
     private static readonly JsonSerializerOptions JsonOptions = new() { PropertyNameCaseInsensitive = true };
@@ -150,6 +151,9 @@ public static partial class JellyfinResponses
             AddedAt = dto.DateCreated is { Year: > 1900 } added ? added.ToUniversalTime() : null,
             Images = ToImageTags(dto.ImageTags, dto.BackdropImageTags),
             Files = kind is MediaItemKind.Movie or MediaItemKind.Episode ? ToFiles(dto.MediaSources) : [],
+            People = ToPeople(dto.People),
+            Tags = TextList(dto.Tags),
+            ProductionLocations = TextList(dto.ProductionLocations),
         };
     }
 
@@ -157,6 +161,44 @@ public static partial class JellyfinResponses
     // which also keeps every id that goes back into a URL free of characters that could alter it.
     public static string? NormalizeId(string? id) =>
         Guid.TryParse(id, out var guid) && guid != Guid.Empty ? guid.ToString("N") : null;
+
+    // Everyone but actors, then the first actors: a long cast list is mostly minor roles.
+    private static IReadOnlyList<MediaPerson> ToPeople(List<PersonDto?>? people)
+    {
+        var result = new List<MediaPerson>();
+        var actors = 0;
+        foreach (var person in people ?? [])
+        {
+            if (person is null || NormalizeId(person.Id) is not { } id || Text(person.Name, MaxNameLength) is not { } name)
+            {
+                continue;
+            }
+
+            var kind = ToPersonKind(person.Type);
+            if (kind is PersonKind.Actor or PersonKind.GuestStar && ++actors > MaxCast)
+            {
+                continue;
+            }
+
+            if (result.Count < MaxCast * 2)
+            {
+                result.Add(new MediaPerson(id, name, kind, Text(person.Role, MaxNameLength), ImageTag(person.PrimaryImageTag)));
+            }
+        }
+
+        return result;
+    }
+
+    private static PersonKind ToPersonKind(string? type) => type switch
+    {
+        "Director" => PersonKind.Director,
+        "Writer" => PersonKind.Writer,
+        "Actor" => PersonKind.Actor,
+        "GuestStar" => PersonKind.GuestStar,
+        "Producer" => PersonKind.Producer,
+        "Composer" => PersonKind.Composer,
+        _ => PersonKind.Other,
+    };
 
     private static IReadOnlyList<MediaFile> ToFiles(List<MediaSourceDto?>? sources)
     {
@@ -256,6 +298,7 @@ public static partial class JellyfinResponses
     {
         "movies" => MediaLibraryKind.Movies,
         "tvshows" => MediaLibraryKind.Shows,
+        "boxsets" => MediaLibraryKind.Collections,
         null or "" or "mixed" => MediaLibraryKind.Mixed,
         _ => MediaLibraryKind.Other,
     };
@@ -266,10 +309,11 @@ public static partial class JellyfinResponses
         "Series" => MediaItemKind.Series,
         "Season" => MediaItemKind.Season,
         "Episode" => MediaItemKind.Episode,
+        "BoxSet" => MediaItemKind.Collection,
         _ => null,
     };
 
-    public static string ItemType(MediaItemKind kind) => kind.ToString();
+    public static string ItemType(MediaItemKind kind) => kind == MediaItemKind.Collection ? "BoxSet" : kind.ToString();
 
     private static DateOnly? ToDate(DateTimeOffset? value) =>
         value is { Year: >= 1800 and <= 3000 } date ? DateOnly.FromDateTime(date.UtcDateTime) : null;
@@ -376,7 +420,12 @@ public static partial class JellyfinResponses
         DateTimeOffset? DateCreated,
         Dictionary<string, string?>? ImageTags,
         List<string?>? BackdropImageTags,
-        List<MediaSourceDto?>? MediaSources);
+        List<MediaSourceDto?>? MediaSources,
+        List<PersonDto?>? People,
+        List<string?>? Tags,
+        List<string?>? ProductionLocations);
+
+    private sealed record PersonDto(string? Id, string? Name, string? Role, string? Type, string? PrimaryImageTag);
 
     private sealed record MediaSourceDto(
         string? Id,

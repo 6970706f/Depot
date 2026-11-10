@@ -56,6 +56,10 @@ public sealed class MediaItemConfiguration : IEntityTypeConfiguration<MediaItemR
         builder.Property(item => item.Studios).IsRequired();
         builder.Property(item => item.ProviderIds).IsRequired();
         builder.Property(item => item.BackdropImageTags).IsRequired();
+        builder.Property(item => item.People).IsRequired().HasDefaultValue("[]");
+        builder.Property(item => item.Tags).IsRequired().HasDefaultValue("[]");
+        builder.Property(item => item.ProductionLocations).IsRequired().HasDefaultValue("[]");
+        builder.Property(item => item.MemberIds).IsRequired().HasDefaultValue("[]");
         // SQLite can't sort DateTimeOffset text, so this one is stored as its UTC ticks, which sort in
         // time order and, unlike EF's binary converter, keep every digit Jellyfin sends: a value that
         // reads back different would count as a change on every sync.
@@ -66,6 +70,7 @@ public sealed class MediaItemConfiguration : IEntityTypeConfiguration<MediaItemR
         builder.HasIndex(item => new { item.LibraryId, item.Kind });
         builder.HasIndex(item => item.SeriesExternalId);
         builder.HasIndex(item => item.SeasonExternalId);
+        builder.HasIndex(item => new { item.Kind, item.IsAnime });
 
         builder.HasMany(item => item.Files)
             .WithOne()

@@ -52,6 +52,33 @@ public sealed class MediaImageService(IMediaCatalogRepository catalog, IJellyfin
         return new MediaImageResult(image, tag);
     }
 
+    // The photo of someone in an item's cast or crew, by their place in its list. Only people
+    // the item records can be asked for, so the browser can't make Depot fetch any other image.
+    public async Task<MediaImageResult> GetPersonImageAsync(int itemId, int personIndex, int? width, CancellationToken cancellationToken)
+    {
+        var maxWidth = RoundWidth(width);
+        var entry = await catalog.GetItemAsync(itemId, includeFiles: false, cancellationToken) ?? throw new MediaItemNotFoundException(itemId);
+        if (personIndex < 0 || personIndex >= entry.Item.People.Count)
+        {
+            throw new ImageNotFoundException();
+        }
+
+        var person = entry.Item.People[personIndex];
+        var tag = person.ImageTag ?? throw new ImageNotFoundException();
+
+        // By person, so their photo is cached once for every item they're in.
+        var key = $"{person.ExternalId}-{ImageKind.Primary}-0-{tag}-{maxWidth?.ToString() ?? "full"}";
+        if (await cache.GetAsync(key, cancellationToken) is { } cached)
+        {
+            return new MediaImageResult(cached, tag);
+        }
+
+        var image = await client.GetImageAsync(person.ExternalId, ImageKind.Primary, 0, tag, maxWidth, cancellationToken)
+            ?? throw new ImageNotFoundException();
+        await cache.SetAsync(key, image, cancellationToken);
+        return new MediaImageResult(image, tag);
+    }
+
     // Null keeps the original size.
     public static int? RoundWidth(int? width)
     {

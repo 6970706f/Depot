@@ -316,6 +316,59 @@ public sealed class JellyfinClientTests
         Assert.All(allowed, address => Assert.True(IPAddress.IsLoopback(address)));
     }
 
+    [Fact]
+    public async Task PeopleKeywordsAndCountriesAreReadWithTheItem()
+    {
+        server.Answer("/Items", Json("""
+            {"Items":[{"Id":"66da3bb5c0522ccf8d8051ca159a5440","Name":"Dune","Type":"Movie",
+              "Tags":["space opera","anime"],"ProductionLocations":["United States of America"],
+              "People":[
+                {"Name":"Timothée Chalamet","Id":"da5aa3243db377e39fa6dcbab1bb1763","Role":"Paul Atreides","Type":"Actor","PrimaryImageTag":"456e18a254409337d94c75bf76eb1968"},
+                {"Name":"Denis Villeneuve","Id":"0f4d0f0aa4f3a8c0b5c1d2e3f4a5b6c7","Type":"Director"},
+                {"Name":"No id","Type":"Actor"}
+              ]},
+             {"Id":"876f770f32972d0b5536d0addf7cdcdd","Name":"Villeneuve Collection","Type":"BoxSet"}],"TotalRecordCount":2}
+            """));
+
+        var page = await client.GetItemsAsync(Library, [MediaItemKind.Movie, MediaItemKind.Collection], 0, 100, CancellationToken.None);
+
+        var dune = page.Items[0];
+        Assert.Equal(["space opera", "anime"], dune.Tags);
+        Assert.Equal(["United States of America"], dune.ProductionLocations);
+        Assert.Equal(
+            [new MediaPerson("da5aa3243db377e39fa6dcbab1bb1763", "Timothée Chalamet", PersonKind.Actor, "Paul Atreides", "456e18a254409337d94c75bf76eb1968"),
+             new MediaPerson("0f4d0f0aa4f3a8c0b5c1d2e3f4a5b6c7", "Denis Villeneuve", PersonKind.Director, null, null)],
+            dune.People);
+        Assert.Equal(MediaItemKind.Collection, page.Items[1].Kind);
+        Assert.Equal("Movie,BoxSet", Query(Assert.Single(server.Requests).Url)["IncludeItemTypes"]);
+        Assert.Contains("People", Query(server.Requests.Single().Url)["Fields"]!.Split(','));
+    }
+
+    [Fact]
+    public async Task ACollectionsMembersAreReadRecursively()
+    {
+        server.Answer("/Items", Json("""
+            {"Items":[{"Id":"7b1df19bc7f3ed45a0d5ed435de78a62","Name":"Arrival","Type":"Movie"},{"Id":"66da3bb5c0522ccf8d8051ca159a5440","Name":"Dune","Type":"Movie"}],"TotalRecordCount":2}
+            """));
+
+        var members = await client.GetCollectionItemIdsAsync("876f770f32972d0b5536d0addf7cdcdd", CancellationToken.None);
+
+        Assert.Equal(["7b1df19bc7f3ed45a0d5ed435de78a62", Dune], members);
+        var query = Query(Assert.Single(server.Requests).Url);
+        Assert.Equal(("876f770f32972d0b5536d0addf7cdcdd", "true", "Movie,Series"), (query["ParentId"], query["Recursive"], query["IncludeItemTypes"]));
+    }
+
+    [Fact]
+    public async Task TheCollectionsFolderIsALibraryOfCollections()
+    {
+        server.Answer("/Library/VirtualFolders", Json("""[{"Name":"Collections","CollectionType":"boxsets","ItemId":"9d7ad6afe9afa2dab1a2f6e00ad28fa6","Locations":[]}]"""));
+
+        var library = Assert.Single(await client.GetLibrariesAsync(CancellationToken.None));
+
+        Assert.Equal(MediaLibraryKind.Collections, library.Kind);
+        Assert.Equal([MediaItemKind.Collection], library.ItemKinds);
+    }
+
     private static HttpClient CreateHttpClient(HttpMessageHandler handler, TimeSpan? timeout = null) =>
         new(handler) { Timeout = timeout ?? JellyfinHttp.Timeout, MaxResponseContentBufferSize = JellyfinHttp.MaxResponseBytes };
 

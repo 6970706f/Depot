@@ -476,9 +476,20 @@ All read from Depot's copy, as of the last sync:
 | Endpoint | What it returns |
 | --- | --- |
 | `GET /api/jellyfin/libraries` | Each library with its kind, folders, counts of movies, series, seasons and episodes, and when it was last read completely. |
-| `GET /api/jellyfin/items` | `{ items, total, page, pageSize }`. `kind` (`movie`, `series`, `season`, `episode`; movies and series by default), `libraryId`, `search` (name or original title), `sort` (`name`, `added`, `year`), `page`, `pageSize` (up to 200). |
-| `GET /api/jellyfin/items/{id}` | Metadata (overview, genres, studios, ratings, provider ids such as IMDb and TMDB...), **every file** (a movie can have several versions) with container, size, bitrate, runtime and its video, audio and subtitle streams; the seasons of a series or the episodes of a season, and the series and season of an episode. |
+| `GET /api/jellyfin/items` | `{ items, total, page, pageSize }`. `kind` (`movie`, `series`, `season`, `episode`, `collection`; movies and series by default), `libraryId`, `search` (name or original title), `genre` (one genre, exactly), `year`, `anime` (`true` only anime, `false` none), `collectionId` (a collection's titles), `sort` (`name`, `added`, `year`, `release`), `page`, `pageSize` (up to 200). Each item carries what a poster card shows: year, genres, rating, length, episode count, image versions; a collection without a poster brings the posters of its first titles (`preview`). |
+| `GET /api/jellyfin/items/{id}` | Metadata (overview, genres, studios, countries, ratings, provider ids such as IMDb and TMDB...), directors, writers and cast with their roles, **every file** (a movie can have several versions) with container, size, bitrate, runtime and its video, audio and subtitle streams, the collections it's in; the seasons of a series, the episodes of a season (with their synopses) or the titles of a collection, and the series and season of an episode. |
+| `GET /api/jellyfin/filters` | `{ genres: [{ value, count }], years: [{ value, count }] }` for `kind` and `anime`: what the filters can offer. |
+| `GET /api/jellyfin/stats` | Counts of movies, series, seasons, episodes, collections and anime, files and their size, the 8 most common genres and the last sync. |
 | `GET /api/jellyfin/items/{id}/images/{kind}` | `primary` (poster), `backdrop` (`?index=`), `thumb` or `logo`; `?width=` and `?v=`. |
+| `GET /api/jellyfin/items/{id}/people/{index}/image` | The photo of someone in the item's people, by their place in the list; only people the item records, so the browser can't make Depot fetch any other image. |
+
+**Collections** are Jellyfin's box sets: its *Collections* folder is synced like a library, and each collection's titles
+are read with it (`/Items?ParentId=<collection>&Recursive=true`).
+
+**Anime** isn't a type in Jellyfin, so Depot works it out at sync time (`MediaCategories.IsAnime`) from metadata
+Jellyfin has: a movie or series is anime when its library's name says so (*Anime*, *Anime Movies*...), when *Anime* is
+one of its genres or keywords (TMDB tags anime that way), or when it's animation from Japan (country of production, or
+an original title in Japanese kana). Animation alone isn't anime.
 
 ### Images
 
@@ -523,6 +534,32 @@ never reaches the browser.
 - **Refreshing doesn't interrupt the user:** rows are updated in place, so focus on a button,
   the text and selection in the search box, and an open dialog stay as they were.
 
+### Media library
+
+The **Library** group of the menu shows the Jellyfin library as Depot keeps it (see [Jellyfin library](#jellyfin-library)):
+
+- **Overview**: totals (titles, movies, series, episodes, files and size), the split by category (movies, series,
+  anime) and the most common genres as bars, then the titles added most recently, the newest releases and the
+  collections.
+- **All media**, **Movies**, **Series**, **Anime** and **Collections**: a poster grid with as many columns as fit. Search
+  by title, filter by genre and year (the lists only offer what the library has, with counts), and, on All media and
+  Anime, by type; sort A to Z, by newest release or by recently added. Pages of 60 load as the grid is scrolled. The
+  filters are kept in the address, so going back to a list finds it as it was. Hovering a poster shows its rating,
+  length or episodes and genres.
+- A title's page: backdrop and poster, original title, year, length, rating, age rating, countries, genres (each a
+  link to that genre), synopsis, director, writers, studio, cast with photos and roles, the collections it's in, links
+  to IMDb and TMDB, and each file with its video, audio and subtitle tracks. A series has its seasons as tabs with
+  each episode's still, number, length and synopsis; a collection lists its titles.
+- A bar above every library page shows the last sync (when, what it changed, its errors), its progress while it runs,
+  and **Sync now**, disabled while a sync runs. When Jellyfin can't be reached the pages keep showing Depot's copy,
+  with a notice; images already shown come from Depot's cache.
+- Every state is spelled out: loading (skeletons in the shape of the posters), Jellyfin not set up (with a link to
+  Settings), never synced (with **Sync now**), nothing in a category, no search results (with **Clear filters**), a
+  title without a poster (its name on a plain tile; a collection shows its titles' posters), a title removed since,
+  and the API unreachable (with **Retry**).
+- Images are fetched as they come near the screen, a few at a time, and kept by the browser for good under their
+  version; when Depot's rate limit refuses a burst, they're tried again after a pause.
+
 ### No simulated data
 
 All data in the interface comes from the API. Pages for features that don't have a backend yet
@@ -559,7 +596,7 @@ series/The Last of Us/Season 01/The.Last.of.Us.S01E01.1080p.mkv
   the longest matching name. Subtitles are placed before the video, so after a crash the video is never there without
   them. If the library already has a subtitle with that name, an identical one counts as imported (no duplicate) and a
   different one is **never overwritten**: it is left out and the job says so. The job's message lists the subtitles
-  imported and left out (**Library** page).
+  imported and left out (**Imports** page).
 - **Episodes, specials and extras (series):** each video of a series download is sorted by the download's
   *structure* before anything is imported (`SeriesVideos`):
   - an extras folder (`Extras`, `Featurettes`, `Behind the Scenes`, `Deleted Scenes`, `Special Features`, `Trailers`,
@@ -666,7 +703,7 @@ it's the same file under another name. (In Copy mode there are two real copies.)
   mappings. **Test folders** checks the folders without saving; **Folder check** shows each resolved folder
   (with `~/` expanded), whether it can be read/written, the free space, and whether hardlinks are possible between
   downloads and library.
-- **Library**: one job per video, with source, placement (*Episode · Season 2*, *Special · Season 0*,
+- **Imports**: one job per video, with source, placement (*Episode · Season 2*, *Special · Season 0*,
   *Extra · featurettes*), destination, state and reason. **Retry** tries a failed or skipped job again; **Skip** only
   marks the job: no file is changed or deleted. The **Review** filter lists the videos waiting for review:
   **Confirm** accepts the suggestion, **Confirm all N** accepts it for every video of that download that waits, and
@@ -675,6 +712,10 @@ it's the same file under another name. (In Copy mode there are two real copies.)
   waiting for review.
 
 ### Upgrading from an earlier version
+
+The `AddMediaLibraryDetails` migration adds cast and crew, keywords, countries, collection members and the anime flag to
+the Jellyfin library. Libraries synced before it fill them in on the next sync, which counts every title as updated once.
+The import jobs page, formerly **Library**, is now **Imports** (`#/imports`); **Library** is the media library.
 
 The `ChooseLibraryWhenAdding` migration removes file-name-based classification: old jobs that
 hadn't been imported yet (in review, waiting or failed) are deleted; imported ones stay

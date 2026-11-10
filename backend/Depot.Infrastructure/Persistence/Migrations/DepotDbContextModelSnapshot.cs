@@ -214,6 +214,9 @@ namespace Depot.Infrastructure.Persistence.Migrations
                     b.Property<int?>("IndexNumberEnd")
                         .HasColumnType("INTEGER");
 
+                    b.Property<bool>("IsAnime")
+                        .HasColumnType("INTEGER");
+
                     b.Property<string>("Kind")
                         .IsRequired()
                         .HasColumnType("TEXT");
@@ -223,6 +226,12 @@ namespace Depot.Infrastructure.Persistence.Migrations
 
                     b.Property<string>("LogoImageTag")
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("MemberIds")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -243,11 +252,23 @@ namespace Depot.Infrastructure.Persistence.Migrations
                     b.Property<string>("Path")
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("People")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]");
+
                     b.Property<DateOnly?>("PremiereDate")
                         .HasColumnType("TEXT");
 
                     b.Property<string>("PrimaryImageTag")
                         .HasColumnType("TEXT");
+
+                    b.Property<string>("ProductionLocations")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]");
 
                     b.Property<int?>("ProductionYear")
                         .HasColumnType("INTEGER");
@@ -277,6 +298,12 @@ namespace Depot.Infrastructure.Persistence.Migrations
                         .IsRequired()
                         .HasColumnType("TEXT");
 
+                    b.Property<string>("Tags")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasDefaultValue("[]");
+
                     b.Property<string>("ThumbImageTag")
                         .HasColumnType("TEXT");
 
@@ -291,6 +318,8 @@ namespace Depot.Infrastructure.Persistence.Migrations
                     b.HasIndex("SeasonExternalId");
 
                     b.HasIndex("SeriesExternalId");
+
+                    b.HasIndex("Kind", "IsAnime");
 
                     b.HasIndex("LibraryId", "Kind");
 

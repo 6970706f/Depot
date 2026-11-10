@@ -21,11 +21,22 @@ public static class JellyfinEndpoints
         group.MapGet("/libraries", (MediaCatalogService service, CancellationToken cancellationToken) =>
             service.ListLibrariesAsync(cancellationToken));
 
-        // ?kind=movie|series|season|episode&libraryId=&search=&sort=name|added|year&page=&pageSize=
+        // ?kind=movie|series|season|episode|collection&libraryId=&search=&genre=&year=&anime=true|false
+        // &collectionId=&sort=name|added|year|release&page=&pageSize=
         group.MapGet("/items", (
             string? kind, int? libraryId, string? search, string? sort, int? page, int? pageSize,
+            string? genre, int? year, bool? anime, int? collectionId,
             MediaCatalogService service, CancellationToken cancellationToken) =>
-            service.ListItemsAsync(new MediaItemQueryInput(kind, libraryId, search, sort, page, pageSize), cancellationToken));
+            service.ListItemsAsync(
+                new MediaItemQueryInput(kind, libraryId, search, sort, page, pageSize, genre, year, anime, collectionId), cancellationToken));
+
+        // The genres and years the filters can offer for ?kind= and ?anime=, with their counts.
+        group.MapGet("/filters", (string? kind, bool? anime, MediaCatalogService service, CancellationToken cancellationToken) =>
+            service.GetFiltersAsync(kind, anime, cancellationToken));
+
+        // Totals for the library overview.
+        group.MapGet("/stats", (MediaCatalogService service, CancellationToken cancellationToken) =>
+            service.GetStatsAsync(cancellationToken));
 
         group.MapGet("/items/{id:int}", (int id, MediaCatalogService service, CancellationToken cancellationToken) =>
             service.GetItemAsync(id, cancellationToken));
@@ -37,10 +48,16 @@ public static class JellyfinEndpoints
             HttpContext context, MediaImageService service, CancellationToken cancellationToken) =>
         {
             var result = await service.GetAsync(id, kind, index, width, cancellationToken);
-            // Private: the image is only for whoever has the token, never for a shared cache.
-            context.Response.Headers.CacheControl = v == result.Tag ? "private, max-age=31536000, immutable" : "private, no-cache";
-            var entityTag = new EntityTagHeaderValue($"\"{result.Tag}-{index ?? 0}-{MediaImageService.RoundWidth(width)?.ToString() ?? "full"}\"");
-            return Results.File(result.Image.Content, result.Image.ContentType, entityTag: entityTag);
+            return ImageResult(context, result, v, $"{index ?? 0}-{MediaImageService.RoundWidth(width)?.ToString() ?? "full"}");
+        });
+
+        // The photo of someone in the item's cast or crew, by their index in its people.
+        group.MapGet("/items/{id:int}/people/{index:int}/image", async (
+            int id, int index, int? width, string? v,
+            HttpContext context, MediaImageService service, CancellationToken cancellationToken) =>
+        {
+            var result = await service.GetPersonImageAsync(id, index, width, cancellationToken);
+            return ImageResult(context, result, v, MediaImageService.RoundWidth(width)?.ToString() ?? "full");
         });
 
         // 202 with the queued run; 409 sync_running while another one is queued or running.
@@ -62,5 +79,13 @@ public static class JellyfinEndpoints
             service.GetAsync(id, cancellationToken));
 
         return routes;
+    }
+
+    // Private: an image is only for whoever has the token, never for a shared cache. With its
+    // version in the address (v), the address never changes content and can be kept for good.
+    private static IResult ImageResult(HttpContext context, MediaImageResult result, string? version, string variant)
+    {
+        context.Response.Headers.CacheControl = version == result.Tag ? "private, max-age=31536000, immutable" : "private, no-cache";
+        return Results.File(result.Image.Content, result.Image.ContentType, entityTag: new EntityTagHeaderValue($"\"{result.Tag}-{variant}\""));
     }
 }
