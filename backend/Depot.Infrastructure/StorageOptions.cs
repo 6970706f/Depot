@@ -36,6 +36,9 @@ public sealed class StoragePaths
 
     public string DatabasePath => Path.Combine(DataDirectory, "depot.db");
 
+    // Images from Jellyfin, kept on disk rather than in the database. Safe to delete; not backed up.
+    public string ImageCacheDirectory => Path.Combine(DataDirectory, "cache", "images");
+
     // Storage:DataDirectory, relative to the content root. Creates data/ and data/keys/ readable
     // only by the user running Depot: the keys that encrypt stored passwords are kept unencrypted
     // on Linux.

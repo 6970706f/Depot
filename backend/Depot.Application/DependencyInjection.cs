@@ -1,4 +1,6 @@
 using Depot.Application.Downloads;
+using Depot.Application.Jellyfin;
+using Depot.Application.Media;
 using Depot.Application.Organization;
 using Depot.Application.Settings;
 using Depot.Application.Status;
@@ -13,6 +15,14 @@ public static class DependencyInjection
         services.AddScoped<QBittorrentSettingsService>();
         services.AddScoped<SystemStatusService>();
         services.AddScoped<DownloadService>();
+
+        services.AddSingleton<JellyfinStatusCache>();
+        services.AddScoped<JellyfinSettingsService>();
+        services.AddSingleton<JellyfinSyncQueue>();
+        services.AddScoped<JellyfinSyncService>();
+        services.AddScoped<JellyfinLibrarySync>();
+        services.AddScoped<MediaCatalogService>();
+        services.AddScoped<MediaImageService>();
 
         services.AddSingleton<OrganizationSignal>();
         services.AddSingleton<OrganizationRuntimeStatus>();

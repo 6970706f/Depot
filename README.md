@@ -103,9 +103,9 @@ The `HEALTHCHECK` uses `dotnet Depot.Api.dll --healthcheck`, because the image h
 
   Outside localhost, put a reverse proxy with HTTPS in front: over `http://` the token travels in plain text.
 - **Rate limits** per address: 20 per second (bursts of up to 200), and 30 per minute on routes that
-  make qBittorrent work (adding torrents, testing and saving settings). Above that, `429`.
+  make qBittorrent or Jellyfin work (adding torrents, testing and saving settings, starting a library sync). Above that, `429`.
 - **Permissions:** `data/` and `data/keys/` are created (or fixed) with `0700`, and `depot.db` and the token with `0600`.
-- `Content-Security-Policy`, `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff` headers on every response.
+- `Content-Security-Policy` (images may also be `blob:` URLs, which the page makes from the posters it fetched from `/api`), `X-Frame-Options: DENY` and `X-Content-Type-Options: nosniff` headers on every response.
 
 ## Database
 
@@ -128,11 +128,11 @@ Everything Depot needs to start again on another server is in its data folder (`
 
 | File | Needed | What it is | If it's lost |
 | --- | --- | --- | --- |
-| `depot.db` | yes | Settings (qBittorrent, folders, path mappings), library choices and the history of every job. | Everything above is gone. |
-| `keys/*.xml` | yes | ASP.NET Data Protection keys: they decrypt the stored qBittorrent password. | Only the qBittorrent password: see [Losing the keys](#losing-the-keys). |
+| `depot.db` | yes | Settings (qBittorrent, Jellyfin, folders, path mappings), library choices, the history of every job, and the copy of the Jellyfin library with its sync history. | Everything above is gone (the Jellyfin library comes back with the next sync). |
+| `keys/*.xml` | yes | ASP.NET Data Protection keys: they decrypt the stored qBittorrent password and Jellyfin API key. | Only those two secrets: see [Losing the keys](#losing-the-keys). |
 | `access-token` | recommended | The token browsers send. Not there when `Auth__Token` provides it (keep your `.env` then). | A new one is created on the next start; each browser asks for it once. |
 
-Not part of a backup: the media (`/data`: downloads and libraries, back them up with your own tools), SQLite's
+Not part of a backup: the media (`/data`: downloads and libraries, back them up with your own tools), the image cache (`cache/`, refilled from Jellyfin as images are shown), SQLite's
 `depot.db-wal`/`depot.db-shm` (the backup reads what they hold), Depot's temporary `.depot-job-*` files, and the image.
 Keep `docker-compose.yaml` and `.env` too: they hold your paths, user and allowed host names.
 
@@ -154,7 +154,7 @@ readable only by Depot's user. Without Docker, run the same command where Depot 
 `dotnet run --project backend/Depot.Api -- --backup ./backups`.
 
 **The archive is as sensitive as the data folder:** on Linux the keys are stored unencrypted, so whoever has the
-archive can read the qBittorrent password. Copy it off the server (a backup on the same disk dies with it), encrypted,
+archive can read the qBittorrent password and the Jellyfin API key. Copy it off the server (a backup on the same disk dies with it), encrypted,
 for example with `gpg --symmetric` or a backup tool such as restic or borg. A nightly backup with 30 days kept, in the
 host's crontab:
 
@@ -194,10 +194,11 @@ works on a stopped Depot, but `--restore` checks it first and sets owner, permis
 
 ### Losing the keys
 
-The keys protect only the stored qBittorrent password. If `keys/` is lost, or a database is restored with keys from
-another backup or installation, the password can't be decrypted anymore: Depot acts as if qBittorrent were never set
-up (**Settings → qBittorrent** is empty, downloads can't be listed or added, and imports wait). Everything else in the
-database is intact, and entering the qBittorrent URL, user and password again fixes it. Keep the database
+The keys protect only the stored qBittorrent password and Jellyfin API key. If `keys/` is lost, or a database is restored
+with keys from another backup or installation, they can't be decrypted anymore: Depot acts as if qBittorrent and Jellyfin
+were never set up (**Settings** is empty for them, downloads can't be listed or added, imports wait and the library can't be
+synced; the copy of the library already synced stays readable). Everything else in the database is intact, and entering
+the qBittorrent password and the Jellyfin API key again fixes it. Keep the database
 and keys of the same backup together. Data Protection adds a new key every 90 days and keeps the old ones in `keys/`,
 and a backup always takes all of them.
 
@@ -206,12 +207,14 @@ and a backup always takes all of them.
 `GET /api/health` (no token) returns the overall status and the status of each check:
 
 ```json
-{ "status": "degraded", "checks": { "database": "healthy", "qbittorrent": "degraded" } }
+{ "status": "degraded", "checks": { "database": "healthy", "qbittorrent": "degraded", "jellyfin": "healthy" } }
 ```
 
 - `database`: SQLite opens. If it fails, the status is `unhealthy` and the response is `503`.
 - `qbittorrent`: qBittorrent responds (3 s limit). Unconfigured or down, `degraded` (still `200`):
   Depot keeps responding, and the reason shows up in `GET /api/status`.
+- `jellyfin`: Jellyfin responds (3 s limit). Not set up is `healthy`, since Jellyfin is optional; set up but unreachable
+  is `degraded`.
 
 The frontend queries the endpoint on load and on every automatic refresh. If the API is
 unavailable, an alert appears above the page with the reason and a **Retry** button, and the status
@@ -409,6 +412,91 @@ In the interface, the remove dialog:
   that confirmation;
 - after removing, the notice says what happened to the files and where they are (or were).
 
+## Jellyfin library
+
+Jellyfin is the source of the library's metadata and images. Depot reads it through the Jellyfin REST API and keeps
+its own copy (titles, seasons, episodes, every file of each item with its technical details), so the library can be
+browsed even while Jellyfin is down. Depot never plays media and has no metadata providers of its own.
+
+### Settings
+
+**Settings → Jellyfin connection** holds the server URL and an API key (Jellyfin: *Dashboard → API Keys*).
+
+| Endpoint | What it does |
+| --- | --- |
+| `GET /api/settings/jellyfin` | `{ url, hasApiKey }`. The key is never returned. |
+| `PUT /api/settings/jellyfin` | Saves `{ url, apiKey }`. A blank key keeps the saved one, **only for the same URL**. |
+| `POST /api/settings/jellyfin/test` | Tests the form values before saving: first that the URL answers like Jellyfin (its public info, without the key), then that the key is accepted. Returns `{ serverName, version }`. |
+| `GET /api/jellyfin/status` | `{ configured, connected, serverName, version, error }`; the same object is in `GET /api/status` as `jellyfin`. Reused for 10 s, so polling doesn't reach Jellyfin every second. |
+
+- The key is stored encrypted with Data Protection (its own purpose, next to the qBittorrent password) and only ever
+  travels in the `Authorization: MediaBrowser … Token="…"` header, never in a URL, a response, a log line or the browser.
+- **URL rules (SSRF):** `http`/`https` only, no user name, query or fragment. Loopback and private addresses are allowed,
+  since Jellyfin usually runs on the same machine or network; link-local (`169.254.0.0/16`, where cloud metadata
+  services answer, and `fe80::/10`), `0.0.0.0/8`, multicast, broadcast and reserved ranges are refused, also as
+  IPv4-mapped or NAT64 addresses. Host names are checked again **when connecting**, on the addresses they resolve to,
+  so DNS rebinding can't get around the rule. Depot uses no proxy for Jellyfin and **never follows redirects** (one
+  could carry the key elsewhere): a redirect is an error that asks for the final address.
+- Answers are checked: JSON only, at most 32 MB; ids must be GUIDs; numbers in range; text trimmed and cut to a sane
+  length. An item that can't be read is skipped and counted, without stopping the page. Requests time out after 15 s.
+- Errors are problem details with `code`: `not_configured` (409), `unreachable`, `timeout`, `invalid_api_key`,
+  `unexpected_response` (502) and `address_not_allowed` (422).
+
+### Sync
+
+Syncs are **manual** for now: **Settings → Library sync → Sync now**, or `POST /api/jellyfin/sync`, which answers `202`
+with the run and `Location: /api/jellyfin/sync/runs/{id}`. The sync runs in the background:
+
+1. Lists the libraries (`/Library/VirtualFolders`). Movies, Shows and mixed libraries are synced; others (music,
+   books...) are only listed. A library gone from Jellyfin is deleted locally with its items.
+2. Reads each library's items with `/Items` (`ParentId`, `Recursive`, `IncludeItemTypes`), 100 per page, sorted by date
+   added so new items don't shift the pages not read yet. Each page is saved as it arrives: new items added, changed ones
+   updated (only real changes count), files matched by id. Items are unique by Jellyfin id, so nothing is kept twice.
+3. Items of a library read to the end that weren't seen are looked up by id (`/Items?Ids=`): only the ones Jellyfin
+   confirms are gone are removed. A page that shifted while items were added or removed never deletes anything.
+4. **Partial failures:** a library that fails halfway keeps what it read and removes nothing; the others are still read.
+   When Jellyfin is down or refuses the key, the remaining libraries are reported instead of tried.
+
+**Only one sync at a time:** starting another while one is queued or running answers `409 sync_running` with its
+`runId`. A run left unfinished by a stop or crash is marked `interrupted` at the next start. Each run records its
+status (`running`, `succeeded`, `completedWithErrors`, `failed`, `interrupted`), the library being read, how many items
+were seen, added, updated, unchanged, removed and skipped, and an error per failed library. The latest 50 runs are kept.
+
+| Endpoint | What it returns |
+| --- | --- |
+| `GET /api/jellyfin/sync` | `{ isRunning, latestRun }` |
+| `GET /api/jellyfin/sync/runs` / `GET /api/jellyfin/sync/runs/{id}` | The latest 20 runs / one run |
+
+A periodic sync only needs a timer in `JellyfinSyncWorker` calling `JellyfinSyncService.StartAsync(SyncTrigger.Scheduled)`.
+
+### Library
+
+All read from Depot's copy, as of the last sync:
+
+| Endpoint | What it returns |
+| --- | --- |
+| `GET /api/jellyfin/libraries` | Each library with its kind, folders, counts of movies, series, seasons and episodes, and when it was last read completely. |
+| `GET /api/jellyfin/items` | `{ items, total, page, pageSize }`. `kind` (`movie`, `series`, `season`, `episode`; movies and series by default), `libraryId`, `search` (name or original title), `sort` (`name`, `added`, `year`), `page`, `pageSize` (up to 200). |
+| `GET /api/jellyfin/items/{id}` | Metadata (overview, genres, studios, ratings, provider ids such as IMDb and TMDB...), **every file** (a movie can have several versions) with container, size, bitrate, runtime and its video, audio and subtitle streams; the seasons of a series or the episodes of a season, and the series and season of an episode. |
+| `GET /api/jellyfin/items/{id}/images/{kind}` | `primary` (poster), `backdrop` (`?index=`), `thumb` or `logo`; `?width=` and `?v=`. |
+
+### Images
+
+Images are never stored in the database. The browser asks Depot (with its token, like any `/api` call); Depot
+serves them from its cache in `data/cache/images/` or, the first time, fetches them from Jellyfin with the key, which
+never reaches the browser.
+
+- Each item records the version (tag) of each image Jellyfin has. The interface asks with `?v=<version>`: that
+  address never changes content, so it's cached `private, max-age=31536000, immutable`; a new image is a new version and
+  a new address. Without `v`, the answer is `private, no-cache` with an `ETag` (and `304` on a match).
+- An image the item doesn't have answers `404 image_not_found` without asking Jellyfin. Cached images still answer
+  while Jellyfin is down.
+- Widths are rounded up to 160, 320, 480, 720, 1080 or 1920 px, so arbitrary widths can't fill the cache. Only JPEG, PNG,
+  WebP and GIF are passed on, recognized by their bytes (never SVG), up to 15 MB.
+- The cache is private (`0700`/`0600`), named by a hash of the item, kind, version and width, and limited to
+  `Jellyfin:ImageCacheMegabytes` (default 512): the images used longest ago go first. Deleting the folder loses nothing.
+- The page shows them as `blob:` URLs made from what it fetched, since an `<img>` can't send the token.
+
 ## Interface
 
 ### Dashboard (Overview)
@@ -417,8 +505,8 @@ In the interface, the remove dialog:
   completed with the space they use. All computed from the real list from `GET /api/downloads`.
 - **Connections:** each service with its state and the reason when it isn't connected. The same data
   feeds the indicator at the top and the list in the sidebar (`js/components/service-status.js`), so the
-  three places always agree. For now the only service is qBittorrent; Jellyfin will join when
-  the integration exists.
+  three places always agree: qBittorrent and Jellyfin. Jellyfin is optional, so while it isn't set up it shows
+  as a grey ring (*Not set up*) and doesn't turn the indicator red.
 - **No fake numbers:** if qBittorrent becomes unavailable, the metrics show "—" (*Unavailable*) and the table shows the reason,
   instead of keeping stale numbers. Everything recovers on its own when it responds again.
 
@@ -438,7 +526,7 @@ In the interface, the remove dialog:
 ### No simulated data
 
 All data in the interface comes from the API. Pages for features that don't have a backend yet
-(such as activity history or Jellyfin integration) aren't shown. Old routes like `#/movies` open the Overview.
+(such as activity history) aren't shown. Old routes like `#/movies` open the Overview.
 
 ## Media organization for Jellyfin
 
@@ -538,8 +626,8 @@ waits for review).
   on the library side, no folder between the library root and the destination. The configured roots (library
   and mapping folders) can be links.
 
-Tests: `dotnet test backend/Depot.slnx` (domain, use cases, file organizer, qBittorrent client
-against a simulated server, and the endpoints with `WebApplicationFactory`). GitHub Actions
+Tests: `dotnet test backend/Depot.slnx` (domain, use cases, file organizer, qBittorrent and Jellyfin clients
+against simulated servers, library sync and image cache on SQLite, and the endpoints with `WebApplicationFactory`). GitHub Actions
 (`.github/workflows/ci.yml`) runs the tests and checks the syntax of the frontend scripts on every push and pull request.
 
 ### Recommended setup

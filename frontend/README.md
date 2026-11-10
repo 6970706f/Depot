@@ -17,7 +17,7 @@ Theme and interface preferences persist in `localStorage`. If the API isn't runn
 | --- | --- |
 | Overview | Active and completed counts, total speeds, active downloads and the qBittorrent connection |
 | Downloads | Every torrent, with search, status filters, sorting and the pause, resume, retry and remove actions |
-| Settings | The qBittorrent connection (saved on the server), theme and interface preferences |
+| Settings | The qBittorrent connection, the media library folders and the Jellyfin connection with its library sync (saved on the server), theme and interface preferences |
 
 Pages refresh every 2 seconds by default (1, 2 or 5 in Settings).
 
@@ -65,7 +65,7 @@ Pages only talk to `js/api.js`, which calls the API on the page's own origin, so
 - Writes dispatch `change` on `apiEvents`, which refreshes the visible page.
 - Reads made at the same moment from several places share one request (`shared()`), so each refresh asks for each endpoint once.
 
-The browser never calls qBittorrent directly, and secrets are never sent to it. The settings API reports only whether a password is stored (`hasPassword`), and the password field is always sent blank unless the user is replacing the value.
+The browser never calls qBittorrent or Jellyfin directly, and secrets are never sent to it. The settings APIs report only whether a password or API key is stored (`hasPassword`, `hasApiKey`), and those fields are always sent blank unless the user is replacing the value. Jellyfin images come through Depot: `loadJellyfinImage` fetches them with the token and returns a `blob:` URL for an `<img>`, which the caller revokes when it stops showing it.
 
 ## Design notes
 

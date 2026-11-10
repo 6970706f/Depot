@@ -17,6 +17,88 @@ namespace Depot.Infrastructure.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "10.0.14");
 
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.JellyfinSettingsRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProtectedApiKey")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Url")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("JellyfinSettings", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_JellyfinSettings_SingleRow", "Id = 1");
+                        });
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.LibrarySyncRunRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("CurrentLibrary")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Errors")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("FinishedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("ItemsAdded")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemsRemoved")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemsSeen")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemsSkipped")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ItemsUpdated")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LibrariesCompleted")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LibrariesFailed")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("LibrariesTotal")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Message")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("StartedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("LibrarySyncRuns", (string)null);
+                });
+
             modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.LibraryTargetRecord", b =>
                 {
                     b.Property<string>("Hash")
@@ -48,6 +130,204 @@ namespace Depot.Infrastructure.Persistence.Migrations
                     b.HasIndex("ScannedAt");
 
                     b.ToTable("LibraryTargets", (string)null);
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaFileRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("Bitrate")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Container")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("MediaItemId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Name")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("Position")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("RuntimeTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Streams")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MediaItemId", "ExternalId")
+                        .IsUnique();
+
+                    b.ToTable("MediaFiles", (string)null);
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaItemRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("AddedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("BackdropImageTags")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<double?>("CommunityRating")
+                        .HasColumnType("REAL");
+
+                    b.Property<DateTimeOffset>("CreatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("EndDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Genres")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("IndexNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("IndexNumberEnd")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("LibraryId")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("LogoImageTag")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OfficialRating")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("OriginalTitle")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Overview")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ParentIndexNumber")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Path")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateOnly?>("PremiereDate")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PrimaryImageTag")
+                        .HasColumnType("TEXT");
+
+                    b.Property<int?>("ProductionYear")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ProviderIds")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("RuntimeTicks")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("SeasonExternalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SeriesExternalId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SeriesStatus")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("SortName")
+                        .IsRequired()
+                        .HasColumnType("TEXT")
+                        .UseCollation("NOCASE");
+
+                    b.Property<string>("Studios")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ThumbImageTag")
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset>("UpdatedAt")
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.HasIndex("SeasonExternalId");
+
+                    b.HasIndex("SeriesExternalId");
+
+                    b.HasIndex("LibraryId", "Kind");
+
+                    b.ToTable("MediaItems", (string)null);
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaLibraryRecord", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ExternalId")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<DateTimeOffset?>("LastSyncedAt")
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Locations")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExternalId")
+                        .IsUnique();
+
+                    b.ToTable("MediaLibraries", (string)null);
                 });
 
             modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.OrganizationJobRecord", b =>
@@ -210,6 +490,36 @@ namespace Depot.Infrastructure.Persistence.Migrations
                         {
                             t.HasCheckConstraint("CK_QBittorrentSettings_SingleRow", "Id = 1");
                         });
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaFileRecord", b =>
+                {
+                    b.HasOne("Depot.Infrastructure.Persistence.Records.MediaItemRecord", null)
+                        .WithMany("Files")
+                        .HasForeignKey("MediaItemId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaItemRecord", b =>
+                {
+                    b.HasOne("Depot.Infrastructure.Persistence.Records.MediaLibraryRecord", "Library")
+                        .WithMany("Items")
+                        .HasForeignKey("LibraryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Library");
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaItemRecord", b =>
+                {
+                    b.Navigation("Files");
+                });
+
+            modelBuilder.Entity("Depot.Infrastructure.Persistence.Records.MediaLibraryRecord", b =>
+                {
+                    b.Navigation("Items");
                 });
 #pragma warning restore 612, 618
         }

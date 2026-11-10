@@ -1,7 +1,7 @@
 (() => {
   'use strict';
 
-  const { createOrganizationSettings, createPanel, getPref, getSettings, h, icon, saveSettings, selectField, setIcon, setPref, setText, settingsSection: section, testConnection, textField, toast } = MediaFlow;
+  const { createJellyfinSettings, createOrganizationSettings, createPanel, getPref, getSettings, h, icon, saveSettings, selectField, setIcon, setPref, setText, settingsSection: section, testConnection, textField, toast } = MediaFlow;
 
   function isHttpUrl(text) {
     try {
@@ -215,11 +215,13 @@
       }
 
       const organization = createOrganizationSettings(signal);
+      const jellyfin = createJellyfinSettings(signal);
 
       root.append(
         h('div', { class: 'settings' },
           panel.el,
           organization.el,
+          jellyfin.el,
           section('Theme', 'Applies right away and is saved in this browser.', themeField()),
           section('Interface', 'Applies right away and is saved in this browser.', ...interfaceFields()),
         ),
@@ -227,7 +229,7 @@
       panel.loading(4);
 
       // The forms stay untouched by polling so it can't overwrite what's being typed.
-      return () => Promise.all([loaded ? undefined : load(), organization.refresh()]);
+      return () => Promise.all([loaded ? undefined : load(), organization.refresh(), jellyfin.refresh()]);
     },
   };
 

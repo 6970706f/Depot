@@ -1301,3 +1301,54 @@ tr:focus-within .row-actions {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   user-select: all;
 }
+
+/* Jellyfin library sync */
+
+.sync-errors {
+  display: grid;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.sync-errors:empty {
+  display: none;
+}
+
+/* The newest posters, fetched through Depot. */
+.poster-strip {
+  display: flex;
+  gap: var(--space-3);
+  overflow-x: auto;
+  padding-bottom: var(--space-1);
+}
+
+.poster {
+  flex: none;
+  display: grid;
+  gap: var(--space-1);
+  width: 5rem;
+}
+
+.poster img,
+.poster-missing {
+  width: 5rem;
+  height: 7.5rem;
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  object-fit: cover;
+}
+
+.poster-missing {
+  display: grid;
+  place-items: center;
+  color: var(--text-subtle);
+  font-size: var(--text-lg);
+}
+
+.poster-name {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

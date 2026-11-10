@@ -15,6 +15,16 @@ public sealed class DepotDbContext(DbContextOptions<DepotDbContext> options) : D
 
     public DbSet<OrganizationJobRecord> OrganizationJobs => Set<OrganizationJobRecord>();
 
+    public DbSet<JellyfinSettingsRecord> JellyfinSettings => Set<JellyfinSettingsRecord>();
+
+    public DbSet<MediaLibraryRecord> MediaLibraries => Set<MediaLibraryRecord>();
+
+    public DbSet<MediaItemRecord> MediaItems => Set<MediaItemRecord>();
+
+    public DbSet<MediaFileRecord> MediaFiles => Set<MediaFileRecord>();
+
+    public DbSet<LibrarySyncRunRecord> LibrarySyncRuns => Set<LibrarySyncRunRecord>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(DepotDbContext).Assembly);

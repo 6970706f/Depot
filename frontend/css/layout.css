@@ -137,6 +137,12 @@
   box-shadow: inset 0 0 0 1.5px var(--danger);
 }
 
+/* An optional service that isn't set up: a grey ring, not a problem. */
+[data-state="off"] > .dot {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-subtle);
+}
+
 /* Top bar */
 
 .topbar {

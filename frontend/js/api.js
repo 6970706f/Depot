@@ -173,7 +173,7 @@
   }
 
   // GET /api/status
-  // { qbittorrent: { configured, connected, version, error } }
+  // { qbittorrent: { configured, connected, version, error }, jellyfin: { configured, connected, serverName, version, error } }
   function getSystemStatus() {
     return shared('status', () => request('/api/status'));
   }
@@ -361,5 +361,91 @@
     return jobs;
   }
 
-  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, classifyOrganizationJob, confirmOrganizationDownload, getLibrarySeries });
+  // Jellyfin. The browser never talks to Jellyfin either, and never sees its API key: settings
+  // report only hasApiKey, and images come through Depot.
+
+  // GET /api/settings/jellyfin: { url, hasApiKey }.
+  function getJellyfinSettings() {
+    return request('/api/settings/jellyfin');
+  }
+
+  // PUT /api/settings/jellyfin with { url, apiKey }. A blank key keeps the saved one, but only
+  // for the same URL. Errors name "jellyfin.url" or "jellyfin.apiKey".
+  async function saveJellyfinSettings(values) {
+    let saved;
+    try {
+      saved = await request('/api/settings/jellyfin', { method: 'PUT', json: values });
+    } catch (error) {
+      throw withServiceField('jellyfin', error);
+    }
+    apiEvents.dispatchEvent(new Event('change'));
+    return saved;
+  }
+
+  // POST /api/settings/jellyfin/test: { serverName, version } for the values in the form.
+  async function testJellyfinConnection(values) {
+    try {
+      // The backend makes two requests of up to 15 seconds each.
+      return await request('/api/settings/jellyfin/test', { method: 'POST', json: values, timeoutMs: 35000 });
+    } catch (error) {
+      throw withServiceField('jellyfin', error);
+    }
+  }
+
+  // GET /api/jellyfin/libraries: Depot's copy of each library, with item counts.
+  function getJellyfinLibraries() {
+    return shared('jellyfin-libraries', () => request('/api/jellyfin/libraries'));
+  }
+
+  // GET /api/jellyfin/items: { items, total, page, pageSize }. Filters: kind (movie, series,
+  // season, episode), libraryId, search, sort (name, added, year), page, pageSize.
+  function getJellyfinItems(query = {}) {
+    const params = new URLSearchParams(Object.entries(query).filter(([, value]) => value !== null && value !== undefined && value !== ''));
+    const path = `/api/jellyfin/items${params.size ? `?${params}` : ''}`;
+    return shared(path, () => request(path));
+  }
+
+  // GET /api/jellyfin/items/{id}: metadata, files with their streams, and the seasons or episodes.
+  function getJellyfinItem(id) {
+    return request(`/api/jellyfin/items/${encodeURIComponent(id)}`);
+  }
+
+  // GET /api/jellyfin/sync: { isRunning, latestRun }.
+  function getJellyfinSync() {
+    return shared('jellyfin-sync', () => request('/api/jellyfin/sync'));
+  }
+
+  // POST /api/jellyfin/sync: queues a sync and resolves to the run. A sync already running is
+  // an ApiError with code "sync_running".
+  async function startJellyfinSync() {
+    const run = await request('/api/jellyfin/sync', { method: 'POST' });
+    apiEvents.dispatchEvent(new Event('change'));
+    return run;
+  }
+
+  // Resolves to a blob: URL for an item's image, or null when it has none. images is the item's
+  // images object; the version makes the address cacheable for good. The caller revokes the URL
+  // (URL.revokeObjectURL) once it stops showing it.
+  // kind is 'primary' (the poster), 'backdrop', 'thumb' or 'logo'.
+  async function loadJellyfinImage(item, kind, { width, index = 0 } = {}) {
+    const version = kind === 'backdrop' ? item.images.backdrops[index] : item.images[kind];
+    if (!version) return null;
+    const params = new URLSearchParams({ v: version });
+    if (width) params.set('width', String(width));
+    if (index) params.set('index', String(index));
+    let response;
+    try {
+      response = await fetch(`/api/jellyfin/items/${encodeURIComponent(item.id)}/images/${kind}?${params}`, {
+        headers: accessToken ? { Authorization: `Bearer ${accessToken}` } : {},
+        signal: AbortSignal.timeout(20000),
+      });
+    } catch {
+      throw new ApiError(API_UNREACHABLE);
+    }
+    if (response.status === 404) return null;
+    if (!response.ok) throw await toApiError(response);
+    return URL.createObjectURL(await response.blob());
+  }
+
+  Object.assign(MediaFlow, { ApiError, apiEvents, signIn, getHealth, getDownloads, getStats, getSystemStatus, addDownload, pauseDownload, resumeDownload, retryDownload, removeDownload, getSettings, saveSettings, testConnection, getOrganizationSettings, saveOrganizationSettings, testOrganizationSettings, getOrganizationStatus, getOrganizationJobs, retryOrganizationJob, skipOrganizationJob, classifyOrganizationJob, confirmOrganizationDownload, getLibrarySeries, getJellyfinSettings, saveJellyfinSettings, testJellyfinConnection, getJellyfinLibraries, getJellyfinItems, getJellyfinItem, getJellyfinSync, startJellyfinSync, loadJellyfinImage });
 })();
