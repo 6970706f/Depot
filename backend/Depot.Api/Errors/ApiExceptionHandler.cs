@@ -1,4 +1,6 @@
 using Depot.Application.Downloads;
+using Depot.Application.Jellyfin;
+using Depot.Application.Media;
 using Depot.Application.Organization;
 using Depot.Application.QBittorrent;
 using Depot.Domain.Common;
@@ -67,6 +69,41 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problemDetailsSer
                 Detail = qBittorrent.Message,
                 Extensions = { ["code"] = ToCode(qBittorrent.Failure) },
             },
+            JellyfinException jellyfin => new ProblemDetails
+            {
+                Status = ToStatusCode(jellyfin.Failure),
+                Title = "Jellyfin request failed.",
+                Detail = jellyfin.Message,
+                Extensions = { ["code"] = ToCode(jellyfin.Failure) },
+            },
+            SyncAlreadyRunningException running => new ProblemDetails
+            {
+                Status = StatusCodes.Status409Conflict,
+                Title = "A library sync is already running.",
+                Detail = running.Message,
+                Extensions = { ["code"] = "sync_running", ["runId"] = running.RunId },
+            },
+            SyncRunNotFoundException notFound => new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "The library sync doesn't exist.",
+                Detail = notFound.Message,
+                Extensions = { ["code"] = "sync_run_not_found" },
+            },
+            MediaItemNotFoundException notFound => new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "The media item doesn't exist.",
+                Detail = notFound.Message,
+                Extensions = { ["code"] = "item_not_found" },
+            },
+            ImageNotFoundException notFound => new ProblemDetails
+            {
+                Status = StatusCodes.Status404NotFound,
+                Title = "The image doesn't exist.",
+                Detail = notFound.Message,
+                Extensions = { ["code"] = "image_not_found" },
+            },
             _ => null,
         };
 
@@ -103,6 +140,24 @@ public sealed class ApiExceptionHandler(IProblemDetailsService problemDetailsSer
         QBittorrentFailure.Banned => "banned",
         QBittorrentFailure.TorrentNotFound => "torrent_not_found",
         QBittorrentFailure.TorrentRejected => "torrent_rejected",
+        _ => "unexpected_response",
+    };
+
+    private static int ToStatusCode(JellyfinFailure failure) => failure switch
+    {
+        JellyfinFailure.NotConfigured => StatusCodes.Status409Conflict,
+        // The saved or tested URL is the problem, not the server behind it.
+        JellyfinFailure.AddressNotAllowed => StatusCodes.Status422UnprocessableEntity,
+        _ => StatusCodes.Status502BadGateway,
+    };
+
+    private static string ToCode(JellyfinFailure failure) => failure switch
+    {
+        JellyfinFailure.NotConfigured => "not_configured",
+        JellyfinFailure.Unreachable => "unreachable",
+        JellyfinFailure.Timeout => "timeout",
+        JellyfinFailure.InvalidApiKey => "invalid_api_key",
+        JellyfinFailure.AddressNotAllowed => "address_not_allowed",
         _ => "unexpected_response",
     };
 }

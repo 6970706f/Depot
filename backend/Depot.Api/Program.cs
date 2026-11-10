@@ -42,7 +42,8 @@ builder.Services.AddSingleton(services => AccessToken.Load(builder.Configuration
 // The database decides whether Depot is healthy; qBittorrent only whether it's degraded.
 builder.Services.AddHealthChecks()
     .AddCheck<DatabaseHealthCheck>("database")
-    .AddCheck<QBittorrentHealthCheck>("qbittorrent");
+    .AddCheck<QBittorrentHealthCheck>("qbittorrent")
+    .AddCheck<JellyfinHealthCheck>("jellyfin");
 
 var app = builder.Build();
 
@@ -52,6 +53,7 @@ app.Logger.LogInformation("Depot's access token comes from {Source}. The interfa
 app.UseExceptionHandler();
 
 // The interface must not be framed by another site (clickjacking) or load anything from elsewhere.
+// Images may also be blob: URLs, which the page makes from the posters it fetched from /api with the token.
 app.Use(async (context, next) =>
 {
     var headers = context.Response.Headers;
@@ -59,7 +61,7 @@ app.Use(async (context, next) =>
     headers.XFrameOptions = "DENY";
     headers["Referrer-Policy"] = "no-referrer";
     headers.ContentSecurityPolicy =
-        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+        "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
     await next(context);
 });
 
@@ -94,6 +96,8 @@ app.MapQBittorrentSettingsEndpoints();
 app.MapStatusEndpoints();
 app.MapDownloadEndpoints();
 app.MapOrganizationEndpoints();
+app.MapJellyfinSettingsEndpoints();
+app.MapJellyfinEndpoints();
 
 app.Run();
 return 0;

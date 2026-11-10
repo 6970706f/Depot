@@ -22,6 +22,17 @@ public sealed class DatabaseHealthCheck(DepotDbContext dbContext) : IHealthCheck
     }
 }
 
+// Jellyfin is optional: not set up is healthy, set up but unreachable is degraded, and the
+// reason is in /api/status.
+public sealed class JellyfinHealthCheck(SystemStatusService status) : IHealthCheck
+{
+    public async Task<HealthCheckResult> CheckHealthAsync(HealthCheckContext context, CancellationToken cancellationToken = default)
+    {
+        var jellyfin = await status.GetJellyfinStatusAsync(cancellationToken);
+        return jellyfin.Connected || !jellyfin.Configured ? HealthCheckResult.Healthy() : HealthCheckResult.Degraded(jellyfin.Error);
+    }
+}
+
 // Depot still answers without qBittorrent, and says why in /api/status: degraded.
 public sealed class QBittorrentHealthCheck(SystemStatusService status) : IHealthCheck
 {
