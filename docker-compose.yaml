@@ -1,0 +1,33 @@
+# Depot next to qBittorrent and Jellyfin, all mounting the same media folder as /data.
+#
+# Put these in a .env file next to this one (docker compose reads it; it is never committed):
+#   PUID / PGID          the user and group that own the media files (`id -u`, `id -g`)
+#   DEPOT_CONFIG_DIR     Depot's own data: database, keys and access token. Create it before the first start.
+#   MEDIA_DIR            the media folder qBittorrent and Jellyfin also mount as /data, with
+#                        downloads/, movies/ and series/ inside it
+#   DEPOT_PORT           optional, port on the host (5080)
+#   DEPOT_ALLOWED_HOSTS  optional, every name used in the browser to reach Depot, separated by ";"
+#
+#   docker compose up -d
+#   docker compose exec depot cat /config/access-token
+#
+# Then open http://localhost:5080 and paste the token. qBittorrent's URL in Settings is as seen
+# from inside the container: http://qbittorrent:8080 in the same compose project, or
+# http://host.docker.internal:8080 when it runs on the host.
+services:
+  depot:
+    build: .
+    image: ghcr.io/6970706f/depot:latest
+    container_name: depot
+    restart: unless-stopped
+    # The user that owns the media: Depot writes to the libraries and hardlinks the downloads.
+    user: "${PUID:?set PUID in .env}:${PGID:?set PGID in .env}"
+    ports:
+      - "${DEPOT_PORT:-5080}:8080"
+    environment:
+      AllowedHosts: "${DEPOT_ALLOWED_HOSTS:-localhost;127.0.0.1}"
+    volumes:
+      - ${DEPOT_CONFIG_DIR:?set DEPOT_CONFIG_DIR in .env}:/config
+      - ${MEDIA_DIR:?set MEDIA_DIR in .env}:/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

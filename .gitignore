@@ -1,0 +1,15 @@
+# Nix / direnv
+.direnv/
+result
+
+# .NET build output
+bin/
+obj/
+# Left by the C# editor extension on Linux, with a literal backslash in the name.
+bin\\Debug/
+
+# Local application data (database, keys, access token)
+data/
+
+# Local docker compose settings
+.env

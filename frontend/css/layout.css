@@ -1,0 +1,155 @@
+/* App shell: sidebar, top bar and page area. */
+
+.app {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding: var(--space-3);
+  border-right: 1px solid var(--border);
+  background: var(--surface-1);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: calc(var(--topbar-height) - var(--space-3));
+  padding: 0 var(--space-2);
+  font-weight: 600;
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nav a {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: var(--control-height);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius);
+  color: var(--text-muted);
+  text-decoration: none;
+}
+
+.nav a:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav a[aria-current="page"] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+.nav .count {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--danger);
+}
+
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  height: var(--topbar-height);
+  padding: 0 var(--space-5);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.page-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.topbar-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.services {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.topbar .menu-btn {
+  display: none;
+}
+
+.banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-5);
+  background: var(--danger-surface);
+  color: var(--danger);
+}
+
+.view {
+  padding: var(--space-5);
+  outline: none;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+  max-width: 80rem;
+}
+
+@media (max-width: 48rem) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sidebar {
+    position: fixed;
+    z-index: 20;
+    width: var(--sidebar-width);
+    transform: translateX(-100%);
+    transition: transform var(--transition);
+  }
+
+  .sidebar.open {
+    transform: none;
+  }
+
+  .topbar .menu-btn {
+    display: inline-flex;
+  }
+
+  .topbar,
+  .view {
+    padding-left: var(--space-4);
+    padding-right: var(--space-4);
+  }
+
+  .services {
+    display: none;
+  }
+}
